@@ -4,7 +4,8 @@ const MODEL_MANIFESTS = Object.freeze({
         revision: 'b75f4e52949639c3bb0b96546ea4149482f6e7ef',
         dtype: 'q8',
         kind: 'owlvit',
-        minimumTotalMb: 2048,
+        // 2 GB in provider/VM sizing is decimal bytes (~1907 MiB), not 2 GiB.
+        minimumTotalMb: 1907,
         minimumAvailableMb: 512,
         threshold: 0.12,
         files: Object.freeze([
@@ -65,7 +66,7 @@ const APPLE_MLX_MANIFEST = Object.freeze({
         { path: 'processor_config.json', size: 130, sha256: '6eb1a2e487fa8b7521691a3382b5afd92a78e8ea34b385f8824fa07563e92245' },
         { path: 'special_tokens_map.json', size: 439927, sha256: '20f95a5768e5d9d14ab9bebbf844c1750ece27765109ce35be9a629db630aedc' },
         { path: 'tokenizer.json', size: 3747961, sha256: '9b466914d9e7f9a39936c9bbe2ac28c86cd8b35c83a905699b01f83178f27c51' },
-        { path: 'tokenizer_config.json', size: 232317, sha256: '06e57de7118812e63652f83c779ed1608712418c37cd8f7e4cec4380c6f43810' },
+        { path: 'tokenizer_config.json', size: 232317, sha256: '06e57de7118812e63652f83c779ed1608712418c37df3bd60f2f8aeac' },
         { path: 'vocab.json', size: 798293, sha256: 'ed19656ea1707df69134c4af35c8ceda2cc9860bf2c3495026153a133670ab5e' }
     ])
 });
