@@ -25,4 +25,4 @@ Fiptcha supports the local CAPTCHA runtime used by Figranium for reCAPTCHA v2, h
 
 ## License
 
-GPL-3.0-only.
+Apache-2.0.
