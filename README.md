@@ -2,25 +2,26 @@
 
 Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.
 
-Fiptcha is a standalone local solver service. It owns model selection and lifecycle, verified model downloads, resource detection, local inference, and the optional Apple Silicon MLX runtime. It is **not an npm package**.
+Fiptcha is the standalone CAPTCHA solving runtime extracted from Figranium. It provides model selection and lifecycle management, verified model downloads, resource detection, local image-grid solving, browser challenge helpers, and optional Apple Silicon MLX acceleration.
 
-## Run
+## Install
 
 ```bash
-npm install
-npm start
+npm install @figranium/fiptcha
 ```
 
-By default Fiptcha listens on `127.0.0.1:11438`.
+## Usage
 
-### API
+```js
+const { solveLocalCaptcha } = require('@figranium/fiptcha');
 
-- `GET /health` — reports solver/model status.
-- `POST /detect` — accepts `{ "image": "<base64 PNG>", "label": "traffic light", "threshold": 0.12 }` and returns detections.
+const result = await solveLocalCaptcha(page, {
+  captchaType: 'recaptcha_v2',
+  timeout: 60_000
+});
+```
 
-Set `FIPTCHA_HOST`, `FIPTCHA_PORT`, and optionally `FIPTCHA_TOKEN` to change the listener and protect requests. When `FIPTCHA_TOKEN` is set, clients must send `Authorization: Bearer <token>`.
-
-Figranium keeps browser-session interaction and sends challenge screenshots to Fiptcha for inference.
+Fiptcha supports the local CAPTCHA runtime used by Figranium for reCAPTCHA v2, hCaptcha, and Turnstile interactions. Model behavior can be configured with the existing `CAPTCHA_*` environment variables.
 
 ## License
 
