@@ -1,0 +1,185 @@
+name: Bootstrap fiptcha
+
+on:
+  push:
+    paths:
+      - .github/workflows/bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fiptcha
+      - uses: actions/checkout@v4
+        with:
+          repository: figranium/figranium
+          ref: main
+          path: upstream
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Extract CAPTCHA runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd fiptcha
+          mkdir -p src scripts tests/fixtures/captcha .github/workflows
+
+          for file in \
+            captcha-benchmark.js \
+            captcha-companion-client.js \
+            captcha-grid-solver.js \
+            captcha-interceptor.js \
+            captcha-local-solver.js \
+            captcha-mlx-runtime.js \
+            captcha-model-downloader.js \
+            captcha-model-manager.js \
+            captcha-model-manifest.js \
+            captcha-resources.js; do
+            cp "../upstream/src/agent/figranite/$file" "src/$file"
+          done
+
+          for file in \
+            captcha-companion-requirements.txt \
+            captcha-companion.js \
+            captcha-container-probe.js \
+            captcha-mlx-worker.py \
+            install-captcha-companion.js; do
+            cp "../upstream/scripts/$file" "scripts/$file"
+          done
+
+          for file in \
+            captchaArtifacts.test.js \
+            captchaCompanion.test.js \
+            captchaGrid.test.js \
+            captchaModelLifecycle.test.js \
+            captchaModelManager.test.js \
+            captchaResources.test.js \
+            captchaThresholds.test.js; do
+            cp "../upstream/tests/$file" "tests/$file"
+          done
+          cp -R ../upstream/tests/fixtures/captcha/. tests/fixtures/captcha/
+          cp ../upstream/LICENSE LICENSE
+
+          sed -i "s#../src/agent/figranite/#../src/#g" scripts/*.js tests/*.js
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/captcha-mlx-runtime.js')
+          s = p.read_text()
+          s = s.replace("path.resolve(process.cwd(), 'scripts', 'captcha-mlx-worker.py')", "path.resolve(__dirname, '..', 'scripts', 'captcha-mlx-worker.py')")
+          p.write_text(s)
+          PY
+
+          cat > index.js <<'EOF'
+          module.exports = {
+            ...require('./src/captcha-benchmark'),
+            ...require('./src/captcha-companion-client'),
+            ...require('./src/captcha-grid-solver'),
+            ...require('./src/captcha-interceptor'),
+            ...require('./src/captcha-local-solver'),
+            ...require('./src/captcha-mlx-runtime'),
+            ...require('./src/captcha-model-downloader'),
+            ...require('./src/captcha-model-manager'),
+            ...require('./src/captcha-model-manifest'),
+            ...require('./src/captcha-resources')
+          };
+          EOF
+
+          cat > package.json <<'EOF'
+          {
+            "name": "@figranium/fiptcha",
+            "version": "0.1.0",
+            "description": "Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.",
+            "main": "index.js",
+            "license": "GPL-3.0-only",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/figranium/fiptcha.git"
+            },
+            "files": [
+              "index.js",
+              "src",
+              "scripts",
+              "README.md",
+              "LICENSE"
+            ],
+            "scripts": {
+              "test": "node tests/captchaArtifacts.test.js && node tests/captchaCompanion.test.js && node tests/captchaGrid.test.js && node tests/captchaModelLifecycle.test.js && node tests/captchaModelManager.test.js && node tests/captchaResources.test.js && node tests/captchaThresholds.test.js",
+              "companion:install": "node scripts/install-captcha-companion.js",
+              "companion:start": "node scripts/captcha-companion.js",
+              "container:probe": "node scripts/captcha-container-probe.js"
+            },
+            "dependencies": {
+              "@huggingface/transformers": "^3.8.1"
+            }
+          }
+          EOF
+
+          cat > README.md <<'EOF'
+          # fiptcha
+
+          Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.
+
+          `@figranium/fiptcha` contains the local CAPTCHA model runtime, image-grid solver, resource detection, model download/verification, Turnstile interception, and optional Apple Silicon companion runtime that previously lived inside Figranium.
+
+          ## Install
+
+          ```bash
+          npm install @figranium/fiptcha
+          ```
+
+          Figranium currently consumes the package directly from this repository until the package is published.
+
+          ## Usage
+
+          ```js
+          const { solveLocalCaptcha, captchaModelManager } = require('@figranium/fiptcha');
+          ```
+
+          The solver accepts an existing browser page/context; it does not own browser launch, application storage, or Figranium task orchestration.
+
+          ## License
+
+          GPL-3.0-only.
+          EOF
+
+          cat > .gitignore <<'EOF'
+          node_modules/
+          data/
+          .DS_Store
+          EOF
+
+          cat > .github/workflows/ci.yml <<'EOF'
+          name: CI
+          on:
+            push:
+              branches: [main]
+            pull_request:
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: 22
+                    cache: npm
+                - run: npm ci
+                - run: npm test
+          EOF
+
+          npm install --package-lock-only --ignore-scripts
+          npm ci --ignore-scripts
+          npm test
+          rm .github/workflows/bootstrap.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Extract CAPTCHA solver from Figranium"
+          git push
