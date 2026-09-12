@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.",
   "main": "index.js",
-  "license": "GPL-3.0-only",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/figranium/fiptcha.git"
@@ -13,7 +13,10 @@
     "src",
     "scripts/captcha-mlx-worker.py",
     "scripts/captcha-companion-requirements.txt",
-    "README.md"
+    "scripts/captcha-container-probe.js",
+    "scripts/install-captcha-companion.js",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node tests/smoke.test.js"
