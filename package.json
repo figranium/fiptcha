@@ -1,16 +1,22 @@
 {
-  "name": "fiptcha",
+  "name": "@figranium/fiptcha",
   "version": "0.1.0",
-  "private": true,
   "description": "Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.",
+  "main": "index.js",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/figranium/fiptcha.git"
   },
+  "files": [
+    "index.js",
+    "src",
+    "scripts/captcha-mlx-worker.py",
+    "scripts/captcha-companion-requirements.txt",
+    "README.md"
+  ],
   "scripts": {
-    "start": "node server.js",
-    "test": "node tests/smoke.test.js && node tests/server.test.js"
+    "test": "node tests/smoke.test.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1"
