@@ -1,5 +1,5 @@
 {
-  "name": "@figranium/fiptcha",
+  "name": "fiptcha",
   "version": "0.1.0",
   "description": "Local CAPTCHA solving for browser automation. Built for Figranium, usable anywhere.",
   "main": "index.js",
