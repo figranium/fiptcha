@@ -1,139 +1,231 @@
 # Fiptcha
 
-Local, self-hosted CAPTCHA solving primitives for browser automation. Built for Figranium, designed to be usable by other Node.js browser automation projects.
+Local CAPTCHA solving for browser automation.
 
-Fiptcha is the standalone CAPTCHA runtime extracted from Figranium. It contains the local model/runtime layer that Figranium uses to detect resources, manage vision models, solve image grids, interact with browser challenges, and optionally use an Apple Silicon MLX companion.
+Fiptcha is the CAPTCHA runtime used by Figranium, packaged as a standalone Apache-2.0 Node.js library so it can be embedded in other browser automation projects.
 
-Fiptcha does **not** require the Figranium application or task format. The package exposes its solver modules directly, so another application can integrate the pieces it needs around its own browser lifecycle.
-
-## Why Fiptcha?
-
-CAPTCHA solving inside a browser automation project tends to grow into its own subsystem: model selection, model downloads, resource checks, image-grid interpretation, challenge interception, browser interaction, platform-specific acceleration, and lifecycle management all need to work together. Fiptcha keeps that subsystem separate from the automation framework using it.
-
-The goals are:
-
-- keep local CAPTCHA solving self-hostable;
-- avoid coupling the solver to Figranium's UI, API, task schema, or storage layer;
-- expose reusable Node.js modules for other browser automation projects;
-- download model assets only when they are needed rather than bundling large weights;
-- select an appropriate local backend based on available resources;
-- support optional companion runtimes without making them mandatory for every installation.
-
-## Supported challenge families
-
-Fiptcha contains the local runtime used by Figranium for:
-
-- reCAPTCHA v2 image challenges;
-- hCaptcha image challenges;
-- Cloudflare Turnstile/browser challenge helpers.
-
-Support is intentionally described as challenge/runtime support rather than a guarantee that every CAPTCHA can be solved. Providers change their challenge implementations and may use additional risk signals beyond the visible challenge.
-
-## Features
-
-- Local CAPTCHA solving from a browser automation session.
-- Resource-aware model selection.
-- Verified, on-demand model downloads and model lifecycle management.
-- Image-grid classification and challenge handling.
-- Browser challenge interception helpers.
-- Companion-process client and runtime support.
-- Optional MLX acceleration for compatible Apple Silicon environments.
-- Container/resource probing utilities.
-- CAPTCHA benchmarking helpers.
-- Environment-variable configuration through the `CAPTCHA_*` settings used by the runtime.
-- Apache-2.0 licensing for reuse in other applications.
-
-## Requirements
-
-Fiptcha is a Node.js package and expects the host application to provide the browser/page object used for challenge interaction. It does not launch or manage your entire automation application for you.
-
-Model inference can require substantial memory. Fiptcha performs resource detection before selecting a local model. A provider-advertised 2 GB host is treated using decimal gigabyte semantics rather than incorrectly requiring a full 2 GiB/2048 MiB allocation.
-
-Large model files are not intended to be embedded into the npm package. They are fetched by the model-management layer when required.
-
-## Installation
+## Install
 
 ```bash
 npm install fiptcha
 ```
 
-The package entry point is CommonJS, so it can be loaded with `require()` directly.
+CommonJS:
 
 ```js
-const fiptcha = require('fiptcha');
+const { solveLocalCaptcha } = require('fiptcha');
 ```
 
-## Basic usage
+Fiptcha does not launch a browser for you. Your application owns the browser lifecycle and passes an active Playwright-compatible `page` into the solver.
 
-The highest-level local solver can be used with a compatible browser page:
+## Quick start
+
+```js
+const { chromium } = require('playwright');
+const { solveLocalCaptcha } = require('fiptcha');
+
+const browser = await chromium.launch({ headless: false });
+const page = await browser.newPage();
+
+await page.goto('https://example.com');
+
+const logs = [];
+const result = await solveLocalCaptcha(page, {
+  captchaType: 'recaptcha_v2',
+  timeout: 60_000,
+  logs
+});
+
+console.log(result.token);
+console.log(result.provider); // "local"
+console.log(result.model);    // present when a vision model was used
+console.log(result.device);   // "browser", "cpu", or the active inference device
+
+await browser.close();
+```
+
+## Supported challenge types
+
+Pass one of these values as `captchaType`:
+
+| Value | Behavior |
+| --- | --- |
+| `recaptcha_v2` | Interacts with the checkbox and solves supported image-grid challenges locally when required. |
+| `hcaptcha` | Interacts with the widget and solves supported image-grid challenges locally when required. |
+| `turnstile` | Performs active-browser interaction and waits for a token. It does not use the image-grid vision path. |
+
+Fiptcha cannot guarantee that every challenge will be solvable. CAPTCHA providers can change their UI, challenge format, and risk checks independently of the visible widget.
+
+## `solveLocalCaptcha(page, options)`
+
+This is the main integration API.
+
+```js
+const result = await solveLocalCaptcha(page, {
+  captchaType: 'hcaptcha',
+  timeout: 60_000,
+  logs: []
+});
+```
+
+### Arguments
+
+#### `page`
+
+An active Playwright-compatible page. Fiptcha uses page/frame APIs, locators, mouse interaction, evaluation, and timeouts against this object.
+
+#### `options.captchaType`
+
+Required. One of:
+
+```text
+recaptcha_v2
+hcaptcha
+turnstile
+```
+
+#### `options.timeout`
+
+Optional. Maximum solve time in milliseconds.
+
+Default:
+
+```js
+60_000
+```
+
+#### `options.logs`
+
+Optional array. Fiptcha appends diagnostic messages to it while solving.
+
+```js
+const logs = [];
+
+await solveLocalCaptcha(page, {
+  captchaType: 'recaptcha_v2',
+  logs
+});
+
+console.log(logs);
+```
+
+### Return value
+
+A successful solve returns an object similar to:
+
+```js
+{
+  token: '...',
+  provider: 'local',
+  model: 'owlvit', // only when a vision backend was used
+  device: 'cpu'
+}
+```
+
+`model` is omitted when no vision model was needed.
+
+### Errors
+
+`solveLocalCaptcha` throws when:
+
+- the requested CAPTCHA type is unsupported;
+- a challenge never exposes a usable token or image challenge;
+- a required vision backend cannot be prepared;
+- the challenge ends without producing a token;
+- Turnstile does not issue a token after browser interaction.
+
+Wrap solves in your application's normal error handling:
+
+```js
+try {
+  const result = await solveLocalCaptcha(page, {
+    captchaType: 'recaptcha_v2',
+    timeout: 60_000
+  });
+
+  console.log(result.token);
+} catch (error) {
+  console.error('CAPTCHA solve failed:', error.message);
+}
+```
+
+## Browser integration pattern
+
+A typical integration should keep orchestration outside Fiptcha:
 
 ```js
 const { solveLocalCaptcha } = require('fiptcha');
 
-const result = await solveLocalCaptcha(page, {
-  captchaType: 'recaptcha_v2',
-  timeout: 60_000
-});
+async function handleCaptcha(page, captchaType) {
+  const logs = [];
 
-console.log(result);
+  const result = await solveLocalCaptcha(page, {
+    captchaType,
+    timeout: 60_000,
+    logs
+  });
+
+  return {
+    token: result.token,
+    diagnostics: logs
+  };
+}
 ```
 
-Your application remains responsible for creating the browser, navigating to the target page, deciding when a solve should occur, and handling the solve result in its own workflow.
+Your application should remain responsible for:
 
-## Integration model
+- launching and closing browsers;
+- choosing browser contexts and sessions;
+- navigation;
+- deciding when CAPTCHA handling should run;
+- retries at the workflow level;
+- proxies and network policy;
+- persistence;
+- translating Fiptcha errors/results into your own execution model.
 
-Fiptcha is designed as a runtime library rather than a complete automation framework. A typical integration looks like this:
+Fiptcha is responsible for the CAPTCHA-specific runtime: token detection, widget interaction, grid solving, model selection, model downloads, resource checks, and optional companion runtimes.
 
-```text
-Your application
-    |
-    +-- browser lifecycle (Playwright/compatible host)
-    |
-    +-- challenge detection / solve trigger
-    |       |
-    |       +-- Fiptcha
-    |             +-- resource detection
-    |             +-- model manager
-    |             +-- model downloader
-    |             +-- local solver
-    |             +-- grid solver
-    |             +-- optional companion / MLX runtime
-    |
-    +-- application-specific result handling
-```
+## Exported helpers
 
-This separation is deliberate. Fiptcha does not know about Figranium Tasks, blocks, Cabinets, executions, authentication, scheduling, or its UI.
+The package root re-exports the public exports from these modules:
 
-## Public API
+| Module | Purpose |
+| --- | --- |
+| `captcha-local-solver` | High-level widget/token handling and `solveLocalCaptcha`. |
+| `captcha-grid-solver` | Image-grid solving and provider adapters. |
+| `captcha-interceptor` | Challenge interception helpers. |
+| `captcha-resources` | Host/container memory and resource detection. |
+| `captcha-model-manager` | Model selection, readiness, and lifecycle state. |
+| `captcha-model-downloader` | Model download and verification. |
+| `captcha-model-manifest` | Model metadata and requirements. |
+| `captcha-companion-client` | Client for the optional companion process. |
+| `captcha-mlx-runtime` | Apple Silicon MLX runtime support. |
+| `captcha-benchmark` | Benchmarking helpers. |
 
-The root package currently re-exports the public functions from the following modules:
-
-- `captcha-local-solver` — high-level local solving logic;
-- `captcha-grid-solver` — image-grid solving primitives;
-- `captcha-interceptor` — browser/challenge interception helpers;
-- `captcha-resources` — host/container resource detection;
-- `captcha-model-manager` — model selection and lifecycle management;
-- `captcha-model-downloader` — model acquisition and verification;
-- `captcha-model-manifest` — model metadata;
-- `captcha-companion-client` — communication with the optional companion process;
-- `captcha-mlx-runtime` — MLX runtime integration;
-- `captcha-benchmark` — benchmark helpers.
-
-For example:
+For example, lower-level token helpers are also available:
 
 ```js
 const {
-  solveLocalCaptcha,
-  // Other model, resource, interception, and grid helpers are
-  // exported from the same package entry point.
+  readToken,
+  waitForToken,
+  clickCheckbox,
+  solveLocalCaptcha
 } = require('fiptcha');
 ```
 
-Fiptcha is still young, so applications that depend on lower-level helpers should pin the package version while the standalone API is being stabilized.
+The high-level solver is the recommended integration boundary. Lower-level exports are useful for custom integrations, but their API should be treated as pre-stable until Fiptcha reaches a stable standalone API release.
+
+## Models and memory requirements
+
+Fiptcha does not bundle large model weights into the npm tarball. Required assets are acquired through the model-management layer when needed.
+
+The runtime chooses an appropriate backend based on available resources. In particular, a provider-advertised **2 GB** machine is interpreted using decimal sizing (2,000,000,000 bytes, about 1907 MiB) rather than incorrectly requiring 2048 MiB.
+
+If your application runs in an ephemeral container, persist the model/cache directory used by your deployment so models do not need to be downloaded again on every container recreation.
 
 ## Companion runtime
 
-Fiptcha includes the companion tooling that was previously embedded in Figranium.
+Fiptcha includes an optional companion process for environments that need it.
 
 Install companion requirements:
 
@@ -141,103 +233,150 @@ Install companion requirements:
 npm run companion:install
 ```
 
-Start the companion:
+Start it:
 
 ```bash
 npm run companion:start
 ```
 
-For the Docker-oriented path:
+Start the Docker-oriented path:
 
 ```bash
 npm run companion:start:docker
 ```
 
-The companion is optional. Applications that do not need that backend can use the ordinary Node.js runtime without making the companion part of their own product architecture.
+The companion is optional. Ordinary Node.js integrations do not need to make it part of their architecture unless they use that runtime path.
 
-## Resource probing
+## Apple Silicon / MLX
 
-The package includes a probe command:
+Fiptcha contains the MLX worker and runtime integration used for compatible Apple Silicon environments.
+
+The MLX path is optional. Consumers that do not use MLX can ignore the bundled worker and companion requirements.
+
+## Inspect the runtime environment
+
+Run the included resource probe:
 
 ```bash
 npm run probe
 ```
 
-This is useful when validating the environment Fiptcha will run in, especially inside containers where reported memory limits may differ from the physical host.
+This is useful in containers and VMs where cgroup/container limits may differ from the physical host's reported memory.
 
-Resource detection is kept inside Fiptcha so applications embedding it do not need to reproduce Figranium-specific hardware checks.
-
-## Model management
-
-Fiptcha separates model metadata, downloading, resource selection, and inference/runtime behavior. This allows the package to choose a suitable backend without forcing every application to ship every supported model.
-
-The model downloader verifies model assets against the package's model manifest. Applications embedding Fiptcha should persist the configured model/cache directory if they do not want model assets to be downloaded again when an ephemeral container is recreated.
-
-## Configuration
-
-Fiptcha uses the `CAPTCHA_*` environment-variable configuration inherited from the standalone runtime extracted from Figranium. Configuration belongs to the process embedding Fiptcha; the package does not require a Figranium settings database.
-
-When integrating Fiptcha into another application, keep CAPTCHA/model configuration at the application boundary and pass browser state through the solver APIs rather than importing Figranium-specific configuration code.
-
-## Using Fiptcha outside Figranium
-
-Fiptcha is intentionally licensed and packaged for this use case. A third-party automation project can install `fiptcha`, provide its own browser page, call the high-level solver or lower-level exported helpers, and keep its own orchestration around the package.
-
-A good integration should generally:
-
-1. let the host application own browser creation and navigation;
-2. detect or decide when a CAPTCHA needs to be handled;
-3. invoke Fiptcha with the active page/challenge context;
-4. allow Fiptcha to manage its local model/runtime concerns;
-5. translate the returned result into the host application's own success/error model.
-
-Avoid copying Fiptcha source into the consuming project. Depending on the package keeps fixes to model handling, resource detection, and challenge logic independently upgradeable.
-
-## Figranium integration
-
-Figranium consumes Fiptcha as a dependency. Compatibility shims in Figranium preserve its previous internal CAPTCHA import paths while the implementation itself lives here.
-
-That means Fiptcha is not merely a separately published copy of the solver: this repository is intended to be the canonical implementation of the local CAPTCHA runtime used by Figranium.
-
-## Testing
-
-Run the package smoke tests with:
+## Test Fiptcha
 
 ```bash
 npm test
 ```
 
-The test suite includes regression coverage for resource detection, including the 2 GB host threshold that previously rejected machines advertised as having 2 GB RAM because the check effectively required 2 GiB.
+The smoke suite checks the extracted runtime and includes regression coverage for resource selection, including the 2 GB memory threshold.
 
-## Current maturity
+## Check what npm will publish
 
-Fiptcha began as an extraction of a production subsystem rather than a greenfield SDK. The underlying solver has already been exercised through Figranium, but the standalone package API is new.
+Before publishing a release:
 
-The high-level integration boundary is usable today. The main area that should be considered pre-stable is the exact shape and naming of lower-level exported helpers. Until a stable standalone API is declared, pinning an exact Fiptcha version is recommended for third-party applications.
+```bash
+npm pack --dry-run
+```
 
-## Security and responsible use
+The package intentionally publishes the runtime source, entry point, companion scripts, README, and license—not downloaded model weights.
 
-CAPTCHA systems are one part of a site's abuse-prevention and access-control strategy. Integrators are responsible for ensuring their automation is authorized and complies with applicable terms, policies, and law.
+## Release process
 
-Do not treat successful CAPTCHA handling as permission to access data or perform actions that the application is otherwise not authorized to perform.
+Fiptcha publishes to npm as:
 
-## Relationship to Figranium
+```text
+fiptcha
+```
 
-Fiptcha is part of the Figranium ecosystem but is independently reusable. Figranium provides the visual browser-automation product and orchestration layer; Fiptcha focuses on the CAPTCHA-solving runtime.
+The repository uses npm Trusted Publishing through GitHub Actions. Releases are published without a long-lived npm token.
 
-## Contributing
+To release a new version:
 
-Bug reports and focused improvements are welcome. For solver bugs, include enough environment information to reproduce the issue, particularly:
+1. Update `version` in `package.json`.
+2. Merge the change to `main`.
+3. Create and publish a GitHub Release whose tag matches the package version, for example `v0.2.0`.
+4. The release workflow runs the tests and publishes the package to npm through OIDC Trusted Publishing.
 
-- operating system and architecture;
-- Node.js version;
-- container/runtime details if applicable;
-- available memory;
-- CAPTCHA provider/challenge family;
-- whether the ordinary runtime or companion/MLX path was used.
+Do not manually add an `NPM_TOKEN` secret for the normal release path.
 
-Please avoid attaching sensitive cookies, credentials, or private browsing data to public issues.
+## Using Fiptcha from another project
+
+Install it normally:
+
+```bash
+npm install fiptcha
+```
+
+Then keep the integration at your browser/runtime boundary:
+
+```js
+const { solveLocalCaptcha } = require('fiptcha');
+
+async function solve(page) {
+  return solveLocalCaptcha(page, {
+    captchaType: 'recaptcha_v2',
+    timeout: 45_000
+  });
+}
+```
+
+No Figranium task schema, server, UI, database, scheduler, authentication system, or storage layer is required.
+
+## Using Fiptcha in Figranium
+
+Figranium consumes the published `fiptcha` package and keeps only Figranium-specific integration code in the main application.
+
+The standalone Fiptcha repository is the canonical implementation of the local CAPTCHA runtime. Fixes to model handling, resource detection, challenge interaction, or companion behavior should be made here rather than copied back into Figranium.
+
+## Troubleshooting
+
+### `Local solver does not support ...`
+
+Check that `captchaType` is exactly one of:
+
+```text
+recaptcha_v2
+hcaptcha
+turnstile
+```
+
+### `vision backend unavailable`
+
+The challenge requires the image-solving path, but Fiptcha could not prepare a supported vision backend. Check available memory, model availability/downloads, and the output of:
+
+```bash
+npm run probe
+```
+
+### Challenge appears but no token is returned
+
+Increase the solve timeout and collect the `logs` array. Also verify that the challenge family still matches the provider structure expected by the current Fiptcha version.
+
+### Models download repeatedly in containers
+
+Persist the model/cache storage used by the runtime instead of recreating it with every ephemeral container.
+
+### A lower-level helper changed between releases
+
+Prefer `solveLocalCaptcha` for application integrations. Until the low-level API is declared stable, pin an exact Fiptcha version if you depend directly on internal/model/grid helpers.
+
+## Package contents
+
+The npm package contains:
+
+```text
+index.js
+src/
+scripts/captcha-mlx-worker.py
+scripts/captcha-companion-requirements.txt
+scripts/captcha-container-probe.js
+scripts/install-captcha-companion.js
+scripts/captcha-companion.js
+README.md
+LICENSE
+```
 
 ## License
 
-Fiptcha is licensed under the Apache License 2.0. See `LICENSE` for the full terms.
+Apache-2.0.
