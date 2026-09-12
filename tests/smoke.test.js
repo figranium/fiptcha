@@ -26,4 +26,70 @@ assert.strictEqual(
   'A provider-advertised 2 GB host should qualify even though it is less than 2 GiB'
 );
 
+async function testDelayedCheckboxFrame() {
+  let scans = 0;
+  let clicked = 0;
+  const checkbox = {
+    isVisible: async () => true,
+    isEnabled: async () => true,
+    evaluate: async () => true,
+    click: async () => { clicked += 1; }
+  };
+  const emptyLocator = {
+    count: async () => 0,
+    nth: () => { throw new Error('empty locator has no matches'); }
+  };
+  const frame = {
+    url: () => 'https://www.google.com/recaptcha/api2/anchor?k=test',
+    locator: (selector) => selector === '#recaptcha-anchor'
+      ? { count: async () => 1, nth: () => checkbox }
+      : emptyLocator
+  };
+  const page = {
+    frames: () => (++scans < 3 ? [] : [frame]),
+    waitForTimeout: async () => {}
+  };
+
+  assert.strictEqual(await fiptcha.clickCheckbox(page, 'recaptcha_v2', 1000), true);
+  assert.strictEqual(clicked, 1);
+  assert(scans >= 3, 'checkbox interaction should retry until the provider frame attaches');
+}
+
+async function testHiddenFirstCheckboxMatch() {
+  let visibleClicked = 0;
+  const candidates = [
+    {
+      isVisible: async () => false,
+      isEnabled: async () => true,
+      evaluate: async () => true,
+      click: async () => { throw new Error('hidden match must not be clicked'); }
+    },
+    {
+      isVisible: async () => true,
+      isEnabled: async () => true,
+      evaluate: async () => true,
+      click: async () => { visibleClicked += 1; }
+    }
+  ];
+  const frame = {
+    url: () => 'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0',
+    locator: (selector) => selector === '[role="checkbox"]'
+      ? { count: async () => candidates.length, nth: (index) => candidates[index] }
+      : { count: async () => 0, nth: () => null }
+  };
+  const page = { frames: () => [frame], waitForTimeout: async () => {} };
+
+  assert.strictEqual(await fiptcha.clickCheckbox(page, 'turnstile', 1000), true);
+  assert.strictEqual(visibleClicked, 1);
+}
+
+Promise.resolve()
+  .then(testDelayedCheckboxFrame)
+  .then(testHiddenFirstCheckboxMatch)
+  .then(() => console.log('fiptcha checkbox interaction tests passed'))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+
 console.log('fiptcha smoke tests passed');

@@ -7,6 +7,21 @@ const TOKEN_SELECTORS = Object.freeze({
     turnstile: ['input[name="cf-turnstile-response"]', 'textarea[name="cf-turnstile-response"]']
 });
 
+const WIDGET_INTERACTIONS = Object.freeze({
+    recaptcha_v2: Object.freeze({
+        framePatterns: ['/recaptcha/api2/anchor', '/recaptcha/enterprise/anchor'],
+        selectors: ['#recaptcha-anchor', '[role="checkbox"]']
+    }),
+    hcaptcha: Object.freeze({
+        framePatterns: ['hcaptcha.com/captcha', 'newassets.hcaptcha.com/captcha'],
+        selectors: ['#checkbox', '[role="checkbox"]', 'input[type="checkbox"]', 'label']
+    }),
+    turnstile: Object.freeze({
+        framePatterns: ['challenges.cloudflare.com'],
+        selectors: ['[role="checkbox"]', 'input[type="checkbox"]', 'label', 'button']
+    })
+});
+
 async function readToken(page, captchaType) {
     return page.evaluate(({ type, selectors }) => {
         for (const selector of selectors[type] || []) {
@@ -57,43 +72,40 @@ async function waitForTokenOrChallenge(page, captchaType, timeout) {
     return null;
 }
 
-async function clickCheckbox(page, captchaType) {
-    const patterns = captchaType === 'hcaptcha'
-        ? ['hcaptcha.com/captcha', 'newassets.hcaptcha.com/captcha']
-        : captchaType === 'turnstile'
-            ? ['challenges.cloudflare.com']
-            : ['/recaptcha/api2/anchor', '/recaptcha/enterprise/anchor'];
-    const selector = captchaType === 'hcaptcha'
-        ? '#checkbox, [role="checkbox"], input[type="checkbox"], label'
-        : captchaType === 'turnstile'
-            ? 'input[type="checkbox"], [role="checkbox"], button, label'
-            : '#recaptcha-anchor, [role="checkbox"]';
-    for (const frame of page.frames?.() || []) {
-        if (!patterns.some((pattern) => frame.url().includes(pattern))) continue;
-        const checkbox = frame.locator(selector).first();
-        if (!await checkbox.isVisible({ timeout: 1000 }).catch(() => false)) continue;
-        if (!await checkbox.isEnabled({ timeout: 250 }).catch(() => true)) continue;
-        const pointerReady = await checkbox.evaluate((element) => {
-            const style = getComputedStyle(element);
-            return style.pointerEvents !== 'none' && element.getAttribute('aria-disabled') !== 'true';
-        }).catch(() => true);
-        if (!pointerReady) continue;
-        const firstBox = await checkbox.boundingBox().catch(() => null);
-        await page.waitForTimeout(75);
-        const box = await checkbox.boundingBox().catch(() => null);
-        if (firstBox && box && (Math.abs(firstBox.x - box.x) >= 1 || Math.abs(firstBox.y - box.y) >= 1)) continue;
-        if (box && page.mouse) {
-            const x = box.x + box.width / 2;
-            const y = box.y + box.height / 2;
-            await page.mouse.move(x, y, { steps: 8 });
-            await page.mouse.down();
-            await page.waitForTimeout(45);
-            await page.mouse.up();
-        } else {
-            await checkbox.click({ timeout: 2000 });
+async function clickCheckbox(page, captchaType, timeout = 10_000) {
+    const interaction = WIDGET_INTERACTIONS[captchaType];
+    if (!interaction) return false;
+    const deadline = Date.now() + Math.max(0, timeout);
+
+    do {
+        for (const frame of page.frames?.() || []) {
+            const frameUrl = String(frame.url?.() || '');
+            if (!interaction.framePatterns.some((pattern) => frameUrl.includes(pattern))) continue;
+
+            for (const selector of interaction.selectors) {
+                const matches = frame.locator(selector);
+                const count = await matches.count().catch(() => 0);
+                for (let index = 0; index < count; index += 1) {
+                    const checkbox = matches.nth(index);
+                    if (!await checkbox.isVisible({ timeout: 100 }).catch(() => false)) continue;
+                    if (!await checkbox.isEnabled({ timeout: 100 }).catch(() => true)) continue;
+                    const pointerReady = await checkbox.evaluate((element) => {
+                        const style = getComputedStyle(element);
+                        return style.pointerEvents !== 'none' && element.getAttribute('aria-disabled') !== 'true';
+                    }).catch(() => true);
+                    if (!pointerReady) continue;
+
+                    const clickTimeout = Math.max(1, Math.min(2000, deadline - Date.now()));
+                    const clicked = await checkbox.click({ timeout: clickTimeout }).then(() => true, () => false);
+                    if (clicked) return true;
+                }
+            }
         }
-        return true;
-    }
+
+        if (Date.now() >= deadline) break;
+        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
+    } while (Date.now() <= deadline);
+
     return false;
 }
 
@@ -121,7 +133,15 @@ async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [
         : null;
     let token = await readToken(page, captchaType);
     if (!token) {
-        await clickCheckbox(page, captchaType).catch((error) => logs.push(`Local ${captchaType} checkbox click failed: ${error.message}`));
+        const clickTimeout = Math.min(10_000, Math.max(0, deadline - Date.now()));
+        const clicked = await clickCheckbox(page, captchaType, clickTimeout)
+            .catch((error) => {
+                logs.push(`Local ${captchaType} checkbox click failed: ${error.message}`);
+                return false;
+            });
+        logs.push(clicked
+            ? `Local ${captchaType} checkbox clicked`
+            : `Local ${captchaType} checkbox was not found before the interaction timeout`);
         const initialWait = captchaType === 'hcaptcha' ? 1500 : 7000;
         token = await waitForTokenOrChallenge(page, captchaType, Math.min(initialWait, Math.max(0, deadline - Date.now())));
         if (!token && captchaType === 'hcaptcha' && Date.now() < deadline) {
@@ -165,4 +185,4 @@ async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [
     };
 }
 
-module.exports = { TOKEN_SELECTORS, readToken, waitForToken, waitForTokenOrChallenge, clickCheckbox, executeHcaptchaWidget, solveLocalCaptcha };
+module.exports = { TOKEN_SELECTORS, WIDGET_INTERACTIONS, readToken, waitForToken, waitForTokenOrChallenge, clickCheckbox, executeHcaptchaWidget, solveLocalCaptcha };
