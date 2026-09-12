@@ -15,10 +15,15 @@
     "scripts/captcha-companion-requirements.txt",
     "scripts/captcha-container-probe.js",
     "scripts/install-captcha-companion.js",
+    "scripts/captcha-companion.js",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "companion:install": "node scripts/install-captcha-companion.js",
+    "companion:start": "node scripts/captcha-companion.js",
+    "companion:start:docker": "node scripts/captcha-companion.js --docker",
+    "probe": "node scripts/captcha-container-probe.js",
     "test": "node tests/smoke.test.js"
   },
   "dependencies": {
