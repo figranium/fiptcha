@@ -1,5 +1,7 @@
 # Fiptcha
 
+[![npm version](https://img.shields.io/npm/v/fiptcha.svg)](https://www.npmjs.com/package/fiptcha)
+
 Local CAPTCHA solving for browser automation.
 
 Fiptcha is the CAPTCHA runtime used by Figranium, packaged as a standalone Apache-2.0 Node.js library so it can be embedded in other browser automation projects.
