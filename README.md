@@ -54,13 +54,13 @@ Large model files are not intended to be embedded into the npm package. They are
 ## Installation
 
 ```bash
-npm install @figranium/fiptcha
+npm install fiptcha
 ```
 
 The package entry point is CommonJS, so it can be loaded with `require()` directly.
 
 ```js
-const fiptcha = require('@figranium/fiptcha');
+const fiptcha = require('fiptcha');
 ```
 
 ## Basic usage
@@ -68,7 +68,7 @@ const fiptcha = require('@figranium/fiptcha');
 The highest-level local solver can be used with a compatible browser page:
 
 ```js
-const { solveLocalCaptcha } = require('@figranium/fiptcha');
+const { solveLocalCaptcha } = require('fiptcha');
 
 const result = await solveLocalCaptcha(page, {
   captchaType: 'recaptcha_v2',
@@ -126,7 +126,7 @@ const {
   solveLocalCaptcha,
   // Other model, resource, interception, and grid helpers are
   // exported from the same package entry point.
-} = require('@figranium/fiptcha');
+} = require('fiptcha');
 ```
 
 Fiptcha is still young, so applications that depend on lower-level helpers should pin the package version while the standalone API is being stabilized.
@@ -181,7 +181,7 @@ When integrating Fiptcha into another application, keep CAPTCHA/model configurat
 
 ## Using Fiptcha outside Figranium
 
-Fiptcha is intentionally licensed and packaged for this use case. A third-party automation project can install `@figranium/fiptcha`, provide its own browser page, call the high-level solver or lower-level exported helpers, and keep its own orchestration around the package.
+Fiptcha is intentionally licensed and packaged for this use case. A third-party automation project can install `fiptcha`, provide its own browser page, call the high-level solver or lower-level exported helpers, and keep its own orchestration around the package.
 
 A good integration should generally:
 
