@@ -2,7 +2,7 @@ const assert = require('assert');
 
 process.env.SKIP_LOCAL_CAPTCHA_MODEL = 'true';
 const fiptcha = require('..');
-const { classifyGrid, normalizeModelLabel, PROVIDERS, visibleText } = require('../src/captcha-grid-solver');
+const { classifyGrid, normalizeModelLabel, PROVIDERS, solveImageGrid, visibleText } = require('../src/captcha-grid-solver');
 const { clickVisibleTarget } = require('../src/captcha-pointer');
 const { captchaModelManager } = require('../src/captcha-model-manager');
 
@@ -134,6 +134,55 @@ async function testHiddenChallengeErrorIsIgnored() {
   assert.strictEqual(await visibleText({ locator: () => locator }, '.error'), 'Select all matching images');
 }
 
+async function testRecaptchaGridClicksSelectedTilesThroughTheFrame() {
+  const originalDetect = captchaModelManager.detect;
+  const gridPng = Buffer.alloc(24);
+  gridPng.write('PNG', 1, 'ascii');
+  gridPng.writeUInt32BE(300, 16);
+  gridPng.writeUInt32BE(300, 20);
+  const tileClicks = [];
+  let verifyClicks = 0;
+  const cells = Array.from({ length: 9 }, (_, index) => ({
+    boundingBox: async () => ({ x: (index % 3) * 100, y: Math.floor(index / 3) * 100, width: 100, height: 100 }),
+    screenshot: async () => Buffer.from(`tile-${index}`),
+    click: async () => { tileClicks.push(index); }
+  }));
+  const cellLocator = { count: async () => cells.length, nth: (index) => cells[index] };
+  const grid = {
+    isVisible: async () => true,
+    boundingBox: async () => ({ x: 0, y: 0, width: 300, height: 300 }),
+    screenshot: async () => gridPng
+  };
+  const prompt = { isVisible: async () => true, innerText: async () => 'Select all images with a fire hydrant' };
+  const empty = { count: async () => 0, nth: () => null };
+  const verify = { click: async () => { verifyClicks += 1; } };
+  const frame = {
+    url: () => 'https://www.google.com/recaptcha/api2/bframe?k=test',
+    locator: (selector) => {
+      if (selector === PROVIDERS.recaptcha_v2.grid) return { first: () => grid };
+      if (selector === PROVIDERS.recaptcha_v2.cells) return cellLocator;
+      if (selector === PROVIDERS.recaptcha_v2.instruction) return { count: async () => 1, nth: () => prompt };
+      if (selector === PROVIDERS.recaptcha_v2.error) return empty;
+      if (selector === PROVIDERS.recaptcha_v2.submit) return { first: () => verify };
+      return empty;
+    }
+  };
+  const page = { frames: () => [frame], waitForTimeout: async () => {} };
+  captchaModelManager.detect = async (image) => image === gridPng ? [] : (String(image) === 'tile-4' ? [{ score: 0.9 }] : []);
+  try {
+    const token = await solveImageGrid(page, {
+      captchaType: 'recaptcha_v2',
+      deadline: Date.now() + 1_000,
+      waitForToken: async () => 'token'
+    });
+    assert.strictEqual(token, 'token');
+    assert.deepStrictEqual(tileClicks, [4]);
+    assert.strictEqual(verifyClicks, 1);
+  } finally {
+    captchaModelManager.detect = originalDetect;
+  }
+}
+
 async function testPointerClickDoesNotScrollOffscreenTargetsIntoView() {
   let pointerClicks = 0;
   const page = {
@@ -150,6 +199,7 @@ Promise.resolve()
   .then(testHiddenFirstCheckboxMatch)
   .then(testGridFallsBackToTilesWhenWholeGridHasNoDetection)
   .then(testHiddenChallengeErrorIsIgnored)
+  .then(testRecaptchaGridClicksSelectedTilesThroughTheFrame)
   .then(testPointerClickDoesNotScrollOffscreenTargetsIntoView)
   .then(() => console.log('fiptcha checkbox interaction tests passed'))
   .catch((error) => {

@@ -1,5 +1,4 @@
 const { captchaModelManager, checksumBuffer } = require('./captcha-model-manager');
-const { clickVisibleTarget } = require('./captcha-pointer');
 
 const PROVIDERS = Object.freeze({
     recaptcha_v2: Object.freeze({
@@ -161,17 +160,16 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
             const count = await cells.count();
             if (![9, 16].includes(count)) throw new Error(`Unsupported ${captchaType} grid size (${count} cells)`);
             const selected = await classifyGrid(frame, adapter, cells, prompt, seenTiles);
-            for (const index of selected) {
-                const clicked = await clickVisibleTarget(page, cells.nth(index));
-                if (!clicked) throw new Error(`${captchaType} grid tile was outside the viewport`);
-            }
+            // Grid cells live inside a provider iframe. Let Playwright target the
+            // element in that frame instead of sending a page-level mouse click:
+            // the latter can miss the cell when iframe coordinates change.
+            for (const index of selected) await cells.nth(index).click({ timeout: 2000 });
             totalSelections += selected.length;
             if (!selected.length) break;
             await page.waitForTimeout(600);
         }
         logs.push(`Local ${captchaType} grid round ${round + 1}: selected ${totalSelections} cells for "${prompt}"`);
-        const submitted = await clickVisibleTarget(page, frame.locator(totalSelections ? adapter.submit : adapter.noMatch).first());
-        if (!submitted) throw new Error(`${captchaType} verification button was outside the viewport`);
+        await frame.locator(totalSelections ? adapter.submit : adapter.noMatch).first().click({ timeout: 2000 });
         const token = await waitForToken(page, captchaType, Math.min(2500, Math.max(0, deadline - Date.now())));
         if (token) return token;
         await page.waitForTimeout(350);
