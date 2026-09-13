@@ -1,5 +1,6 @@
 const { captchaModelManager } = require('./captcha-model-manager');
 const { solveImageGrid, PROVIDERS } = require('./captcha-grid-solver');
+const { clickVisibleTarget } = require('./captcha-pointer');
 
 const TOKEN_SELECTORS = Object.freeze({
     recaptcha_v2: ['#g-recaptcha-response', 'textarea[name="g-recaptcha-response"]'],
@@ -95,8 +96,7 @@ async function clickCheckbox(page, captchaType, timeout = 10_000) {
                     }).catch(() => true);
                     if (!pointerReady) continue;
 
-                    const clickTimeout = Math.max(1, Math.min(2000, deadline - Date.now()));
-                    const clicked = await checkbox.click({ timeout: clickTimeout }).then(() => true, () => false);
+                    const clicked = await clickVisibleTarget(page, checkbox).catch(() => false);
                     if (clicked) return true;
                 }
             }

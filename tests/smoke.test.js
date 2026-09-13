@@ -3,6 +3,7 @@ const assert = require('assert');
 process.env.SKIP_LOCAL_CAPTCHA_MODEL = 'true';
 const fiptcha = require('..');
 const { classifyGrid, normalizeModelLabel, PROVIDERS, visibleText } = require('../src/captcha-grid-solver');
+const { clickVisibleTarget } = require('../src/captcha-pointer');
 const { captchaModelManager } = require('../src/captcha-model-manager');
 
 assert.strictEqual(typeof fiptcha.solveLocalCaptcha, 'function');
@@ -38,7 +39,7 @@ async function testDelayedCheckboxFrame() {
     isVisible: async () => true,
     isEnabled: async () => true,
     evaluate: async () => true,
-    click: async () => { clicked += 1; }
+    boundingBox: async () => ({ x: 10, y: 10, width: 20, height: 20 })
   };
   const emptyLocator = {
     count: async () => 0,
@@ -52,7 +53,9 @@ async function testDelayedCheckboxFrame() {
   };
   const page = {
     frames: () => (++scans < 3 ? [] : [frame]),
-    waitForTimeout: async () => {}
+    waitForTimeout: async () => {},
+    viewportSize: () => ({ width: 100, height: 100 }),
+    mouse: { click: async () => { clicked += 1; } }
   };
 
   assert.strictEqual(await fiptcha.clickCheckbox(page, 'recaptcha_v2', 1000), true);
@@ -67,13 +70,13 @@ async function testHiddenFirstCheckboxMatch() {
       isVisible: async () => false,
       isEnabled: async () => true,
       evaluate: async () => true,
-      click: async () => { throw new Error('hidden match must not be clicked'); }
+      boundingBox: async () => ({ x: 10, y: 10, width: 20, height: 20 })
     },
     {
       isVisible: async () => true,
       isEnabled: async () => true,
       evaluate: async () => true,
-      click: async () => { visibleClicked += 1; }
+      boundingBox: async () => ({ x: 10, y: 10, width: 20, height: 20 })
     }
   ];
   const frame = {
@@ -82,7 +85,12 @@ async function testHiddenFirstCheckboxMatch() {
       ? { count: async () => candidates.length, nth: (index) => candidates[index] }
       : { count: async () => 0, nth: () => null }
   };
-  const page = { frames: () => [frame], waitForTimeout: async () => {} };
+  const page = {
+    frames: () => [frame],
+    waitForTimeout: async () => {},
+    viewportSize: () => ({ width: 100, height: 100 }),
+    mouse: { click: async () => { visibleClicked += 1; } }
+  };
 
   assert.strictEqual(await fiptcha.clickCheckbox(page, 'turnstile', 1000), true);
   assert.strictEqual(visibleClicked, 1);
@@ -126,11 +134,23 @@ async function testHiddenChallengeErrorIsIgnored() {
   assert.strictEqual(await visibleText({ locator: () => locator }, '.error'), 'Select all matching images');
 }
 
+async function testPointerClickDoesNotScrollOffscreenTargetsIntoView() {
+  let pointerClicks = 0;
+  const page = {
+    viewportSize: () => ({ width: 100, height: 100 }),
+    mouse: { click: async () => { pointerClicks += 1; } }
+  };
+  const offscreen = { boundingBox: async () => ({ x: 10, y: 140, width: 20, height: 20 }) };
+  assert.strictEqual(await clickVisibleTarget(page, offscreen), false);
+  assert.strictEqual(pointerClicks, 0);
+}
+
 Promise.resolve()
   .then(testDelayedCheckboxFrame)
   .then(testHiddenFirstCheckboxMatch)
   .then(testGridFallsBackToTilesWhenWholeGridHasNoDetection)
   .then(testHiddenChallengeErrorIsIgnored)
+  .then(testPointerClickDoesNotScrollOffscreenTargetsIntoView)
   .then(() => console.log('fiptcha checkbox interaction tests passed'))
   .catch((error) => {
     console.error(error);

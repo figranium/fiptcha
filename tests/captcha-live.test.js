@@ -64,8 +64,13 @@ async function main() {
     for (const [route, captchaType] of cases) {
       const page = await browser.newPage();
       const browserMessages = [];
+      const scrollEvents = [];
       page.on('console', (message) => browserMessages.push(`${message.type()}: ${message.text()}`));
       page.on('pageerror', (error) => browserMessages.push(`pageerror: ${error.message}`));
+      await page.exposeBinding('recordFiptchaScroll', (_, y) => scrollEvents.push(y));
+      await page.addInitScript(() => {
+        addEventListener('scroll', () => globalThis.recordFiptchaScroll(scrollY));
+      });
       await page.goto(`http://${FIXTURE_HOST}:${server.address().port}${route}`, {
         waitUntil: 'domcontentloaded',
         timeout: 30_000
@@ -78,9 +83,10 @@ async function main() {
       try {
         const result = await solveLocalCaptcha(page, { captchaType, timeout: 20_000, logs });
         assert(result.token, `${captchaType} did not return a token`);
+        assert.deepStrictEqual(scrollEvents, [], `${captchaType} interaction must not scroll the page`);
       } catch (error) {
         const state = await page.evaluate(() => window.__captchaState);
-        throw new Error(`${captchaType}: ${error.message}; logs=${JSON.stringify(logs)}; state=${JSON.stringify(state)}; browser=${JSON.stringify(browserMessages)}`);
+        throw new Error(`${captchaType}: ${error.message}; logs=${JSON.stringify(logs)}; state=${JSON.stringify(state)}; scrolls=${JSON.stringify(scrollEvents)}; browser=${JSON.stringify(browserMessages)}`);
       } finally {
         await page.close();
       }
