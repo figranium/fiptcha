@@ -187,43 +187,13 @@ Your application should remain responsible for:
 
 Fiptcha is responsible for the CAPTCHA-specific runtime: token detection, widget interaction, grid solving, model selection, model downloads, resource checks, and optional companion runtimes.
 
-## Exported helpers
-
-The package root re-exports the public exports from these modules:
-
-| Module | Purpose |
-| --- | --- |
-| `captcha-local-solver` | High-level widget/token handling and `solveLocalCaptcha`. |
-| `captcha-grid-solver` | Image-grid solving and provider adapters. |
-| `captcha-interceptor` | Challenge interception helpers. |
-| `captcha-resources` | Host/container memory and resource detection. |
-| `captcha-model-manager` | Model selection, readiness, and lifecycle state. |
-| `captcha-model-downloader` | Model download and verification. |
-| `captcha-model-manifest` | Model metadata and requirements. |
-| `captcha-companion-client` | Client for the optional companion process. |
-| `captcha-mlx-runtime` | Apple Silicon MLX runtime support. |
-| `captcha-benchmark` | Benchmarking helpers. |
-
-For example, lower-level token helpers are also available:
-
-```js
-const {
-  readToken,
-  waitForToken,
-  clickCheckbox,
-  solveLocalCaptcha
-} = require('fiptcha');
-```
-
-The high-level solver is the recommended integration boundary. Lower-level exports are useful for custom integrations, but their API should be treated as pre-stable until Fiptcha reaches a stable standalone API release.
-
 ## Models and memory requirements
 
-Fiptcha does not bundle large model weights into the npm tarball. Required assets are acquired through the model-management layer when needed.
+Fiptcha does not bundle large model weights into the npm package. Required assets are acquired when needed.
 
-The runtime chooses an appropriate backend based on available resources. In particular, a provider-advertised **2 GB** machine is interpreted using decimal sizing (2,000,000,000 bytes, about 1907 MiB) rather than incorrectly requiring 2048 MiB.
+The runtime chooses an appropriate backend based on available resources. A provider-advertised **2 GB** machine is interpreted using decimal sizing (2,000,000,000 bytes, about 1907 MiB) rather than requiring 2048 MiB.
 
-If your application runs in an ephemeral container, persist the model/cache directory used by your deployment so models do not need to be downloaded again on every container recreation.
+If your application runs in an ephemeral container, persist the model/cache directory so models do not need to be downloaded again on every container recreation.
 
 ## Companion runtime
 
@@ -247,13 +217,11 @@ Start the Docker-oriented path:
 npm run companion:start:docker
 ```
 
-The companion is optional. Ordinary Node.js integrations do not need to make it part of their architecture unless they use that runtime path.
+The companion is optional. Ordinary Node.js integrations do not need it unless they use that runtime path.
 
 ## Apple Silicon / MLX
 
-Fiptcha contains the MLX worker and runtime integration used for compatible Apple Silicon environments.
-
-The MLX path is optional. Consumers that do not use MLX can ignore the bundled worker and companion requirements.
+Fiptcha supports an optional MLX runtime for compatible Apple Silicon environments. Consumers that do not use MLX can ignore it.
 
 ## Inspect the runtime environment
 
@@ -264,43 +232,6 @@ npm run probe
 ```
 
 This is useful in containers and VMs where cgroup/container limits may differ from the physical host's reported memory.
-
-## Test Fiptcha
-
-```bash
-npm test
-```
-
-The smoke suite checks the extracted runtime and includes regression coverage for resource selection, including the 2 GB memory threshold.
-
-## Check what npm will publish
-
-Before publishing a release:
-
-```bash
-npm pack --dry-run
-```
-
-The package intentionally publishes the runtime source, entry point, companion scripts, README, and license—not downloaded model weights.
-
-## Release process
-
-Fiptcha publishes to npm as:
-
-```text
-fiptcha
-```
-
-The repository uses npm Trusted Publishing through GitHub Actions. Releases are published without a long-lived npm token.
-
-To release a new version:
-
-1. Update `version` in `package.json`.
-2. Merge the change to `main`.
-3. Create and publish a GitHub Release whose tag matches the package version, for example `v0.2.0`.
-4. The release workflow runs the tests and publishes the package to npm through OIDC Trusted Publishing.
-
-Do not manually add an `NPM_TOKEN` secret for the normal release path.
 
 ## Using Fiptcha from another project
 
@@ -324,12 +255,6 @@ async function solve(page) {
 ```
 
 No Figranium task schema, server, UI, database, scheduler, authentication system, or storage layer is required.
-
-## Using Fiptcha in Figranium
-
-Figranium consumes the published `fiptcha` package and keeps only Figranium-specific integration code in the main application.
-
-The standalone Fiptcha repository is the canonical implementation of the local CAPTCHA runtime. Fixes to model handling, resource detection, challenge interaction, or companion behavior should be made here rather than copied back into Figranium.
 
 ## Troubleshooting
 
@@ -358,26 +283,6 @@ Increase the solve timeout and collect the `logs` array. Also verify that the ch
 ### Models download repeatedly in containers
 
 Persist the model/cache storage used by the runtime instead of recreating it with every ephemeral container.
-
-### A lower-level helper changed between releases
-
-Prefer `solveLocalCaptcha` for application integrations. Until the low-level API is declared stable, pin an exact Fiptcha version if you depend directly on internal/model/grid helpers.
-
-## Package contents
-
-The npm package contains:
-
-```text
-index.js
-src/
-scripts/captcha-mlx-worker.py
-scripts/captcha-companion-requirements.txt
-scripts/captcha-container-probe.js
-scripts/install-captcha-companion.js
-scripts/captcha-companion.js
-README.md
-LICENSE
-```
 
 ## License
 
