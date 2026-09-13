@@ -42,6 +42,17 @@ function normalizePrompt(adapter, text) {
     return adapter.cleanPrompt(String(text || '')).replace(/\s+/g, ' ').replace(/[.!]+$/, '').trim();
 }
 
+function normalizeModelLabel(label) {
+    return String(label || '').replace(/\b[a-z]+\b/gi, (word) => {
+        const lower = word.toLowerCase();
+        if (lower === 'buses') return 'bus';
+        if (lower.endsWith('ies')) return `${lower.slice(0, -3)}y`;
+        if (/(?:ches|shes|xes|zes)$/.test(lower)) return lower.slice(0, -2);
+        if (lower.endsWith('s') && !lower.endsWith('ss') && !lower.endsWith('us')) return lower.slice(0, -1);
+        return lower;
+    });
+}
+
 function normalizeBox(detection) {
     const box = detection?.box || detection?.bbox;
     if (Array.isArray(box) && box.length >= 4) {
@@ -81,16 +92,16 @@ function mapDetectionsToCells(detections, gridBox, cellBoxes, imageSize = null) 
 }
 
 async function classifyGrid(frame, adapter, cells, label, seenTiles) {
+    const modelLabel = normalizeModelLabel(label);
     const grid = frame.locator(adapter.grid).first();
     const gridBox = await grid.boundingBox().catch(() => null);
     if (gridBox) {
         const image = await grid.screenshot({ type: 'png' });
-        const detections = await captchaModelManager.detect(image, label);
-        if (detections.length === 0) return [];
+        const detections = await captchaModelManager.detect(image, modelLabel);
         const cellBoxes = [];
         for (let index = 0; index < await cells.count(); index += 1) cellBoxes.push(await cells.nth(index).boundingBox().catch(() => null));
         const mapped = mapDetectionsToCells(detections, gridBox, cellBoxes, pngDimensions(image));
-        if (mapped.length || detections.every((item) => normalizeBox(item))) {
+        if (mapped.length) {
             const changed = [];
             for (const index of mapped) {
                 const image = await cells.nth(index).screenshot({ type: 'png' });
@@ -110,13 +121,19 @@ async function classifyGrid(frame, adapter, cells, label, seenTiles) {
         const fingerprint = checksumBuffer(image);
         if (seenTiles.get(index) === fingerprint) continue;
         seenTiles.set(index, fingerprint);
-        if ((await captchaModelManager.detect(image, label)).length) selected.push(index);
+        if ((await captchaModelManager.detect(image, modelLabel)).length) selected.push(index);
     }
     return selected;
 }
 
 async function visibleText(frame, selector) {
-    return frame.locator(selector).first().innerText({ timeout: 1500 }).catch(() => '');
+    const matches = frame.locator(selector);
+    for (let index = 0; index < await matches.count().catch(() => 0); index += 1) {
+        const locator = matches.nth(index);
+        if (!await locator.isVisible({ timeout: 250 }).catch(() => false)) continue;
+        return locator.innerText({ timeout: 1500 }).catch(() => '');
+    }
+    return '';
 }
 
 async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs = [] }) {
@@ -128,7 +145,9 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
         const frame = await findChallengeFrame(page, adapter);
         if (!frame) throw new Error(`${captchaType} image challenge frame disappeared`);
         const rejection = await visibleText(frame, adapter.error);
-        if (rejection) throw new Error(`${captchaType} rejected the previous selection: ${rejection.replace(/\s+/g, ' ').trim()}`);
+        if (rejection && round > 0) {
+            throw new Error(`${captchaType} rejected the previous selection: ${rejection.replace(/\s+/g, ' ').trim()}`);
+        }
         const prompt = normalizePrompt(adapter, await visibleText(frame, adapter.instruction));
         if (!prompt) throw new Error(`${captchaType} solver could not read the image challenge instruction`);
         if (prompt !== previousPrompt) {
@@ -155,4 +174,4 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
     return null;
 }
 
-module.exports = { PROVIDERS, normalizePrompt, normalizeBox, pngDimensions, mapDetectionsToCells, solveImageGrid };
+module.exports = { PROVIDERS, normalizePrompt, normalizeModelLabel, normalizeBox, pngDimensions, mapDetectionsToCells, classifyGrid, visibleText, solveImageGrid };
