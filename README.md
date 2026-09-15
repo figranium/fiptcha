@@ -56,6 +56,9 @@ Pass one of these values as `captchaType`:
 | `hcaptcha` | Interacts with the widget and solves supported image-grid challenges locally when required. |
 | `turnstile` | Performs active-browser interaction and waits for a token. It does not use the image-grid vision path. |
 
+> [!WARNING]
+> **3×3 image-grid stability is currently not good.** Dynamic 3×3 challenges, particularly those that replace tiles after a selection, may be unreliable. 4×4 static image-grid challenges are currently the more stable path.
+
 Fiptcha cannot guarantee that every challenge will be solvable. CAPTCHA providers can change their UI, challenge format, and risk checks independently of the visible widget.
 
 ## `solveLocalCaptcha(page, options)`
