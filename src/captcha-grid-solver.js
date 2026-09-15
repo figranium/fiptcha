@@ -81,12 +81,24 @@ function mapDetectionsToCells(detections, gridBox, cellBoxes, imageSize = null) 
     for (const detection of detections) {
         const box = normalizeBox(detection);
         if (!box) continue;
-        const centerX = gridBox.x + (((box.xmin + box.xmax) / 2) * scaleX);
-        const centerY = gridBox.y + (((box.ymin + box.ymax) / 2) * scaleY);
-        const index = cellBoxes.findIndex((cell) => cell
-            && centerX >= cell.x && centerX <= cell.x + cell.width
-            && centerY >= cell.y && centerY <= cell.y + cell.height);
-        if (index >= 0) indexes.add(index);
+        const detectionBox = {
+            x: gridBox.x + (box.xmin * scaleX),
+            y: gridBox.y + (box.ymin * scaleY),
+            width: Math.max(0, (box.xmax - box.xmin) * scaleX),
+            height: Math.max(0, (box.ymax - box.ymin) * scaleY)
+        };
+        // reCAPTCHA asks for every square containing any part of the target.
+        // Mapping only the detection center misses objects that cross tile borders.
+        // Ignore sub-pixel edge contact so detector jitter does not select neighbors.
+        for (let index = 0; index < cellBoxes.length; index += 1) {
+            const cell = cellBoxes[index];
+            if (!cell) continue;
+            const overlapWidth = Math.min(detectionBox.x + detectionBox.width, cell.x + cell.width)
+                - Math.max(detectionBox.x, cell.x);
+            const overlapHeight = Math.min(detectionBox.y + detectionBox.height, cell.y + cell.height)
+                - Math.max(detectionBox.y, cell.y);
+            if (overlapWidth > 1 && overlapHeight > 1) indexes.add(index);
+        }
     }
     return [...indexes];
 }
