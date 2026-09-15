@@ -14,14 +14,19 @@ const WIDGET_INTERACTIONS = Object.freeze({
         selectors: ['#recaptcha-anchor', '[role="checkbox"]']
     }),
     hcaptcha: Object.freeze({
-        framePatterns: ['hcaptcha.com/captcha', 'newassets.hcaptcha.com/captcha'],
-        selectors: ['#checkbox', '[role="checkbox"]', 'input[type="checkbox"]', 'label']
+        framePatterns: ['hcaptcha.com', 'hcaptcha.html', 'hcaptcha-checkbox.html', 'frame=checkbox'],
+        selectors: ['#checkbox', '.check', '#anchor', '[role="checkbox"]', 'input[type="checkbox"]', 'label']
     }),
     turnstile: Object.freeze({
         framePatterns: ['challenges.cloudflare.com'],
         selectors: ['[role="checkbox"]', 'input[type="checkbox"]', 'label', 'button']
     })
 });
+
+function frameMatches(frame, patterns) {
+    const url = String(frame?.url?.() || '').toLowerCase();
+    return patterns.some((pattern) => url.includes(pattern));
+}
 
 async function readToken(page, captchaType) {
     return page.evaluate(({ type, selectors }) => {
@@ -63,7 +68,7 @@ async function waitForTokenOrChallenge(page, captchaType, timeout) {
         if (token) return token;
         if (adapter) {
             for (const frame of page.frames?.() || []) {
-                if (!adapter.framePatterns.some((pattern) => frame.url().includes(pattern))) continue;
+                if (!frameMatches(frame, adapter.framePatterns)) continue;
                 if (await frame.locator(adapter.grid).first().isVisible({ timeout: 100 }).catch(() => false)) return null;
             }
         }
@@ -80,8 +85,7 @@ async function clickCheckbox(page, captchaType, timeout = 10_000) {
 
     do {
         for (const frame of page.frames?.() || []) {
-            const frameUrl = String(frame.url?.() || '');
-            if (!interaction.framePatterns.some((pattern) => frameUrl.includes(pattern))) continue;
+            if (!frameMatches(frame, interaction.framePatterns)) continue;
 
             for (const selector of interaction.selectors) {
                 const matches = frame.locator(selector);
@@ -112,13 +116,17 @@ async function clickCheckbox(page, captchaType, timeout = 10_000) {
 async function executeHcaptchaWidget(page) {
     return page.evaluate(() => {
         if (typeof globalThis.hcaptcha?.execute !== 'function') return false;
-        try {
-            const pending = globalThis.hcaptcha.execute();
-            if (pending && typeof pending.catch === 'function') pending.catch(() => {});
-            return true;
-        } catch {
-            return false;
+        const ids = [...document.querySelectorAll('[data-hcaptcha-widget-id]')]
+            .map((element) => element.getAttribute('data-hcaptcha-widget-id'))
+            .filter(Boolean);
+        for (const id of [...new Set([...ids, null])]) {
+            try {
+                const pending = id === null ? globalThis.hcaptcha.execute() : globalThis.hcaptcha.execute(id);
+                if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+                return true;
+            } catch { /* try the default/next widget */ }
         }
+        return false;
     }).catch(() => false);
 }
 
@@ -133,7 +141,10 @@ async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [
         : null;
     let token = await readToken(page, captchaType);
     if (!token) {
-        const clickTimeout = Math.min(10_000, Math.max(0, deadline - Date.now()));
+        // Invisible hCaptcha has no checkbox; do not spend ten seconds looking
+        // for one before invoking its documented execute path.
+        const interactionTimeout = captchaType === 'hcaptcha' ? 2500 : 10_000;
+        const clickTimeout = Math.min(interactionTimeout, Math.max(0, deadline - Date.now()));
         const clicked = await clickCheckbox(page, captchaType, clickTimeout)
             .catch((error) => {
                 logs.push(`Local ${captchaType} checkbox click failed: ${error.message}`);
@@ -159,7 +170,7 @@ async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [
         let challengeVisible = false;
         while (!challengeVisible && Date.now() < frameDeadline) {
             for (const frame of page.frames?.() || []) {
-                if (!adapter.framePatterns.some((pattern) => frame.url().includes(pattern))) continue;
+                if (!frameMatches(frame, adapter.framePatterns)) continue;
                 challengeVisible = await frame.locator(adapter.grid).first().isVisible({ timeout: 100 }).catch(() => false);
                 if (challengeVisible) break;
             }
@@ -185,4 +196,4 @@ async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [
     };
 }
 
-module.exports = { TOKEN_SELECTORS, WIDGET_INTERACTIONS, readToken, waitForToken, waitForTokenOrChallenge, clickCheckbox, executeHcaptchaWidget, solveLocalCaptcha };
+module.exports = { TOKEN_SELECTORS, WIDGET_INTERACTIONS, frameMatches, readToken, waitForToken, waitForTokenOrChallenge, clickCheckbox, executeHcaptchaWidget, solveLocalCaptcha };
