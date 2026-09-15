@@ -126,6 +126,16 @@ async function classifyGrid(frame, adapter, cells, label, seenTiles) {
     return selected;
 }
 
+async function rememberClickedTile(cells, index, seenTiles) {
+    // Clicking a CAPTCHA tile changes its rendered appearance (selection overlay,
+    // border, checkmark, etc.). Remember that post-click state immediately so the
+    // next sweep does not mistake the selection UI itself for a replacement image
+    // and toggle an already-correct tile back off. A genuinely replaced tile will
+    // still produce a different fingerprint on the next sweep.
+    const image = await cells.nth(index).screenshot({ type: 'png' }).catch(() => null);
+    if (image) seenTiles.set(index, checksumBuffer(image));
+}
+
 async function visibleText(frame, selector) {
     const matches = frame.locator(selector);
     for (let index = 0; index < await matches.count().catch(() => 0); index += 1) {
@@ -163,7 +173,10 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
             // Grid cells live inside a provider iframe. Let Playwright target the
             // element in that frame instead of sending a page-level mouse click:
             // the latter can miss the cell when iframe coordinates change.
-            for (const index of selected) await cells.nth(index).click({ timeout: 2000 });
+            for (const index of selected) {
+                await cells.nth(index).click({ timeout: 2000 });
+                await rememberClickedTile(cells, index, seenTiles);
+            }
             totalSelections += selected.length;
             if (!selected.length) break;
             await page.waitForTimeout(600);
@@ -177,4 +190,4 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
     return null;
 }
 
-module.exports = { PROVIDERS, normalizePrompt, normalizeModelLabel, normalizeBox, pngDimensions, mapDetectionsToCells, classifyGrid, visibleText, solveImageGrid };
+module.exports = { PROVIDERS, normalizePrompt, normalizeModelLabel, normalizeBox, pngDimensions, mapDetectionsToCells, classifyGrid, rememberClickedTile, visibleText, solveImageGrid };
