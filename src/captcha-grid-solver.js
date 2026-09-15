@@ -81,24 +81,12 @@ function mapDetectionsToCells(detections, gridBox, cellBoxes, imageSize = null) 
     for (const detection of detections) {
         const box = normalizeBox(detection);
         if (!box) continue;
-        const detectionBox = {
-            x: gridBox.x + (box.xmin * scaleX),
-            y: gridBox.y + (box.ymin * scaleY),
-            width: Math.max(0, (box.xmax - box.xmin) * scaleX),
-            height: Math.max(0, (box.ymax - box.ymin) * scaleY)
-        };
-        // reCAPTCHA asks for every square containing any part of the target.
-        // Mapping only the detection center misses objects that cross tile borders.
-        // Ignore sub-pixel edge contact so detector jitter does not select neighbors.
-        for (let index = 0; index < cellBoxes.length; index += 1) {
-            const cell = cellBoxes[index];
-            if (!cell) continue;
-            const overlapWidth = Math.min(detectionBox.x + detectionBox.width, cell.x + cell.width)
-                - Math.max(detectionBox.x, cell.x);
-            const overlapHeight = Math.min(detectionBox.y + detectionBox.height, cell.y + cell.height)
-                - Math.max(detectionBox.y, cell.y);
-            if (overlapWidth > 1 && overlapHeight > 1) indexes.add(index);
-        }
+        const centerX = gridBox.x + (((box.xmin + box.xmax) / 2) * scaleX);
+        const centerY = gridBox.y + (((box.ymin + box.ymax) / 2) * scaleY);
+        const index = cellBoxes.findIndex((cell) => cell
+            && centerX >= cell.x && centerX <= cell.x + cell.width
+            && centerY >= cell.y && centerY <= cell.y + cell.height);
+        if (index >= 0) indexes.add(index);
     }
     return [...indexes];
 }
@@ -138,6 +126,16 @@ async function classifyGrid(frame, adapter, cells, label, seenTiles) {
     return selected;
 }
 
+async function rememberClickedTile(cells, index, seenTiles) {
+    // Clicking a CAPTCHA tile changes its rendered appearance (selection overlay,
+    // border, checkmark, etc.). Remember that post-click state immediately so the
+    // next sweep does not mistake the selection UI itself for a replacement image
+    // and toggle an already-correct tile back off. A genuinely replaced tile will
+    // still produce a different fingerprint on the next sweep.
+    const image = await cells.nth(index).screenshot({ type: 'png' }).catch(() => null);
+    if (image) seenTiles.set(index, checksumBuffer(image));
+}
+
 async function visibleText(frame, selector) {
     const matches = frame.locator(selector);
     for (let index = 0; index < await matches.count().catch(() => 0); index += 1) {
@@ -175,7 +173,10 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
             // Grid cells live inside a provider iframe. Let Playwright target the
             // element in that frame instead of sending a page-level mouse click:
             // the latter can miss the cell when iframe coordinates change.
-            for (const index of selected) await cells.nth(index).click({ timeout: 2000 });
+            for (const index of selected) {
+                await cells.nth(index).click({ timeout: 2000 });
+                await rememberClickedTile(cells, index, seenTiles);
+            }
             totalSelections += selected.length;
             if (!selected.length) break;
             await page.waitForTimeout(600);
@@ -189,4 +190,4 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
     return null;
 }
 
-module.exports = { PROVIDERS, normalizePrompt, normalizeModelLabel, normalizeBox, pngDimensions, mapDetectionsToCells, classifyGrid, visibleText, solveImageGrid };
+module.exports = { PROVIDERS, normalizePrompt, normalizeModelLabel, normalizeBox, pngDimensions, mapDetectionsToCells, classifyGrid, rememberClickedTile, visibleText, solveImageGrid };
