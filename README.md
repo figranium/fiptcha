@@ -1,4 +1,8 @@
-# Fiptcha
+<div align="center">
+  <img src="https://raw.githubusercontent.com/figranium/fiptcha/main/banner.png" alt="Figranium Banner">
+</div>
+
+# fiptcha
 
 [![npm version](https://img.shields.io/npm/v/fiptcha.svg)](https://www.npmjs.com/package/fiptcha)
 
