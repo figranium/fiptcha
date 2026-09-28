@@ -1,12 +1,14 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/figranium/fiptcha/main/banner.png" alt="Figranium Banner">
+  <img src="https://raw.githubusercontent.com/figranium/fiptcha/main/banner.png" alt="Fiptcha Banner">
+
+  <h1>Fiptcha</h1>
+
+  <a href="https://www.npmjs.com/package/fiptcha" target="_blank"><img src="https://img.shields.io/npm/v/fiptcha.svg?style=for-the-badge&label=NPM&logo=npm&logoColor=white" alt="npm version"></a>
+
+  <p><strong>Local CAPTCHA solving for browser automation.</strong></p>
+
+  <p><a href="https://github.com/figranium/fiptcha#readme" target="_blank"><strong>Documentation</strong></a></p>
 </div>
-
-# fiptcha
-
-[![npm version](https://img.shields.io/npm/v/fiptcha.svg)](https://www.npmjs.com/package/fiptcha)
-
-Local CAPTCHA solving for browser automation.
 
 Fiptcha is the lightweight CAPTCHA runtime used by Figranium, packaged as a standalone Apache-2.0 Node.js library so it can be embedded in other browser automation projects.
 
