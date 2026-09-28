@@ -6,8 +6,6 @@
   <a href="https://www.npmjs.com/package/fiptcha" target="_blank"><img src="https://img.shields.io/npm/v/fiptcha.svg?style=for-the-badge&label=NPM&logo=npm&logoColor=white" alt="npm version"></a>
 
   <p><strong>Local CAPTCHA solving for browser automation.</strong></p>
-
-  <p><a href="https://github.com/figranium/fiptcha#readme" target="_blank"><strong>Documentation</strong></a></p>
 </div>
 
 Fiptcha is the lightweight CAPTCHA runtime used by Figranium, packaged as a standalone Apache-2.0 Node.js library so it can be embedded in other browser automation projects.
