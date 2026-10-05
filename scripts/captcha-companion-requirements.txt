@@ -5,4 +5,4 @@ transformers==5.1.0
 tokenizers==0.22.2
 huggingface-hub==1.33.0
 numpy==2.4.2
-Pillow==12.1.0
+Pillow==12.3.0
