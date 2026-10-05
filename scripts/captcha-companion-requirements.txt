@@ -1,6 +1,6 @@
 mlx==0.32.3
 mlx-lm==0.30.6
-mlx-vlm==0.3.11
+mlx-vlm==0.7.4
 transformers==5.1.0
 tokenizers==0.22.2
 huggingface-hub==1.33.0
