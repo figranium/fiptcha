@@ -1,5 +1,5 @@
 mlx==0.32.3
-mlx-lm==0.30.6
+mlx-lm==0.32.0
 mlx-vlm==0.7.4
 transformers==5.1.0
 tokenizers==0.22.2
