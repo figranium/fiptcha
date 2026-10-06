@@ -27,6 +27,6 @@
     "test": "node tests/smoke.test.js"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1"
+    "@huggingface/transformers": "^4.0.0"
   }
 }
