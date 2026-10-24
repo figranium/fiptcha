@@ -2,5 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "Pillow"
+      ],
+      "allowedVersions": "<13",
+      "description": "The companion installer explicitly supports Python 3.10, which Pillow 13 no longer supports; revisit when dropping Python 3.10."
+    }
   ]
 }
