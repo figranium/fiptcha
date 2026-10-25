@@ -1,0 +1,54 @@
+name: MLX dependency compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/captcha-companion-requirements.txt'
+      - 'scripts/captcha-mlx-worker.py'
+      - '.github/workflows/mlx-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/captcha-companion-requirements.txt'
+      - 'scripts/captcha-mlx-worker.py'
+      - '.github/workflows/mlx-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mlx-import-smoke:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/captcha-companion-requirements.txt
+      - name: Install pinned MLX companion dependencies
+        run: python -m pip install -r scripts/captcha-companion-requirements.txt
+      - name: Check dependency consistency
+        run: python -m pip check
+      - name: Smoke-test imports used by the real MLX worker
+        run: |
+          python - <<'PY'
+          import platform
+          assert platform.machine() == 'arm64', platform.machine()
+
+          import mlx.core as mx
+          import mlx_lm
+          from mlx_vlm import generate, load
+          from PIL import Image
+          import transformers
+          import tokenizers
+          import huggingface_hub
+
+          assert callable(load) and callable(generate)
+          assert hasattr(mx, 'array')
+          assert hasattr(Image, 'open')
+          print('MLX worker dependencies import successfully on Apple Silicon')
+          PY
+      - name: Validate worker syntax
+        run: python -m py_compile scripts/captcha-mlx-worker.py
