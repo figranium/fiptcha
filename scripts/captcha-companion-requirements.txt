@@ -1,4 +1,4 @@
-mlx==0.32.3
+mlx==0.32.4
 mlx-lm==0.32.0
 mlx-vlm==0.7.6
 transformers==5.20.2
