@@ -20,11 +20,15 @@ jobs:
   mlx-import-smoke:
     runs-on: macos-15
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.15']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: scripts/captcha-companion-requirements.txt
       - name: Install pinned MLX companion dependencies
