@@ -3,6 +3,6 @@ mlx-lm==0.32.2
 mlx-vlm==0.7.11
 transformers==5.21.1
 tokenizers==0.23.3
-huggingface-hub==2.3.0
+huggingface-hub==2.4.0
 numpy==2.5.3
 Pillow==12.3.0
