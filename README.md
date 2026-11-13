@@ -126,7 +126,7 @@ A successful solve returns an object similar to:
 {
   token: '...',
   provider: 'local',
-  model: 'owlvit', // only when a vision backend was used
+  model: 'florence2', // only when a vision backend was used
   device: 'cpu'
 }
 ```

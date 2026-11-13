@@ -9,7 +9,7 @@ const { detectWithCompanion } = require('./captcha-companion-client');
 const MODEL_ROOT = path.resolve(process.env.CAPTCHA_MODEL_CACHE_DIR || path.join(process.cwd(), 'data', 'captcha-model'));
 const RECONCILE_INTERVAL_MS = 60_000;
 const PROBE_PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAB4Gx4gAAE7Bq0AAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BMQEAAADCoPVP7WENoAAAAG4MIAABt9NlCQAAAABJRU5ErkJggg==',
     'base64'
 );
 
@@ -56,7 +56,7 @@ function selectModelTier(input = getMemorySnapshot(), env = process.env) {
     const florenceQualified = qualifiesMemory(resources.memory, MODEL_MANIFESTS.florence2)
         || (!forceCpu && Boolean(qualifyingAccelerator(resources, MODEL_MANIFESTS.florence2)));
     if (requested === 'florence2' && !florenceQualified) {
-        throw new Error('CAPTCHA_MODEL_TIER=florence2 requires at least 8 GiB effective memory and 2 GiB available');
+        throw new Error('CAPTCHA_MODEL_TIER=florence2 requires at least 2 GB effective memory and 512 MiB available');
     }
     if (requested === 'owlvit') return 'owlvit';
     return florenceQualified ? 'florence2' : 'owlvit';
@@ -73,7 +73,7 @@ function selectModelBackend(tier, input) {
     const device = selectModelDevice(process.env, resources);
     if (qualifiesMemory(resources.memory, definition)) return { type: 'local', device };
     const accelerator = (resources.accelerators || []).find((item) => item.type === device && qualifiesMemory(item, definition));
-    if (device !== 'cpu' && accelerator && qualifiesMemory(resources.memory, MODEL_MANIFESTS.owlvit)) {
+    if (device !== 'cpu' && accelerator && qualifiesMemory(resources.memory, MODEL_MANIFESTS.florence2)) {
         return { type: 'local', device };
     }
     return null;
@@ -300,16 +300,15 @@ class CaptchaModelManager {
             device,
             async detect(imageBuffer, label, threshold = definition.threshold) {
                 const image = await transformers.RawImage.fromBlob(new Blob([imageBuffer], { type: 'image/png' }));
-                const task = `<OPEN_VOCABULARY_DETECTION>${label}`;
+                const task = '<DENSE_REGION_CAPTION>';
                 const prompts = processor.construct_prompts(task);
                 const inputs = await processor(image, prompts);
-                const generated = await model.generate({ ...inputs, max_new_tokens: 64, num_beams: 1 });
+                const generated = await model.generate({ ...inputs, max_new_tokens: 256, num_beams: 1 });
                 const decoded = tokenizer.batch_decode(generated, { skip_special_tokens: false })[0];
-                const parsed = processor.post_process_generation(decoded, task, image.size);
-                const value = parsed?.[task] || parsed?.['<OPEN_VOCABULARY_DETECTION>'] || parsed || {};
-                const boxes = value.bboxes || value.boxes || [];
-                const labels = value.labels || [];
-                return boxes.map((box, index) => ({ box, label: labels[index] || label, score: threshold }));
+                const regions = parseFlorenceRegions(decoded, image.size);
+                return regions
+                    .filter((region) => matchesTargetLabel(region.label, label))
+                    .map((region) => ({ box: region.box, label: region.label || label, score: threshold }));
             },
             async probe() { await this.detect(PROBE_PNG, 'object', 0.99); },
             async dispose() { await model.dispose?.(); }
@@ -353,6 +352,88 @@ class CaptchaModelManager {
 
 const captchaModelManager = new CaptchaModelManager();
 
+const LABEL_SYNONYMS = Object.freeze({
+    car: ['car', 'automobile', 'sedan', 'suv', 'van', 'minivan', 'cab', 'taxi', 'pickup truck', 'jeep', 'land vehicle', 'vehicle'],
+    vehicle: ['vehicle', 'land vehicle', 'car', 'bus', 'truck', 'van', 'motorcycle', 'suv'],
+    bus: ['bus', 'coach', 'school bus', 'transit bus', 'trolleybus', 'double decker bus'],
+    bicycle: ['bicycle', 'bike', 'cycle', 'mountain bike', 'road bike'],
+    motorcycle: ['motorcycle', 'motorbike', 'scooter', 'moped'],
+    'traffic light': ['traffic light', 'traffic signal', 'stoplight', 'stop light'],
+    'fire hydrant': ['fire hydrant', 'hydrant', 'fireplug'],
+    crosswalk: ['crosswalk', 'zebra crossing', 'pedestrian crossing', 'cross walk'],
+    stair: ['stair', 'stairs', 'staircase', 'stairway', 'step', 'steps'],
+    boat: ['boat', 'ship', 'sailboat', 'motorboat', 'yacht', 'ferry', 'canoe', 'kayak', 'vessel', 'watercraft'],
+    bridge: ['bridge', 'overpass', 'viaduct', 'footbridge'],
+    chimney: ['chimney', 'smokestack', 'flue'],
+    'palm tree': ['palm tree', 'palm', 'coconut tree'],
+    tree: ['tree', 'palm tree', 'pine tree', 'oak tree'],
+    tractor: ['tractor', 'farm vehicle'],
+    'parking meter': ['parking meter', 'meter'],
+    truck: ['truck', 'lorry', 'pickup', 'semi', 'van'],
+    taxi: ['taxi', 'cab', 'taxicab', 'yellow cab'],
+    airplane: ['airplane', 'plane', 'aircraft', 'jet', 'airliner'],
+    train: ['train', 'locomotive', 'subway', 'tram', 'streetcar'],
+    mountain: ['mountain', 'hill', 'peak', 'ridge']
+});
+
+function normalizePhrase(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]+/g, ' ')
+        .replace(/\b(?:a|an|the)\b/g, ' ')
+        .replace(/\b[a-z]+\b/g, (word) => {
+            if (word === 'buses') return 'bus';
+            if (word.endsWith('ies') && word.length > 3) return `${word.slice(0, -3)}y`;
+            if (/(?:ches|shes|xes|zes)$/.test(word)) return word.slice(0, -2);
+            if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us') && word.length > 2) return word.slice(0, -1);
+            return word;
+        })
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function matchesTargetLabel(detectedLabel, targetLabel) {
+    const detected = normalizePhrase(detectedLabel);
+    const target = normalizePhrase(targetLabel);
+    if (!detected || !target) return false;
+    const candidates = new Set([target, ...(LABEL_SYNONYMS[target] || [])]);
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizePhrase(candidate);
+        if (!normalizedCandidate) continue;
+        if (new RegExp(`(?:^|\\s)${escapeRegExp(normalizedCandidate)}(?:$|\\s)`).test(detected)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function parseFlorenceRegions(decoded, imageSize) {
+    const text = String(decoded || '').replaceAll('<s>', '').replaceAll('</s>', '');
+    const [width, height] = Array.isArray(imageSize)
+        ? [Number(imageSize[0]), Number(imageSize[1])]
+        : [Number(imageSize?.width), Number(imageSize?.height)];
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return [];
+    const regex = /([^<]+)?<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>/g;
+    const regions = [];
+    let lastLabel = '';
+    for (const match of text.matchAll(regex)) {
+        const rawLabel = (match[1] || '').trim();
+        if (rawLabel) lastLabel = rawLabel;
+        const box = [
+            ((Number(match[2]) + 0.5) / 1000) * width,
+            ((Number(match[3]) + 0.5) / 1000) * height,
+            ((Number(match[4]) + 0.5) / 1000) * width,
+            ((Number(match[5]) + 0.5) / 1000) * height
+        ];
+        if (box.every(Number.isFinite)) regions.push({ box, label: lastLabel });
+    }
+    return regions;
+}
+
 function checksumBuffer(buffer) {
     return crypto.createHash('sha256').update(buffer).digest('hex');
 }
@@ -371,5 +452,7 @@ module.exports = {
     checksumFile,
     parseFlag,
     modelThreshold,
-    isCapacityFailure
+    isCapacityFailure,
+    parseFlorenceRegions,
+    matchesTargetLabel
 };

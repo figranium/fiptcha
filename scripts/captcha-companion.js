@@ -143,7 +143,7 @@ async function detectTier(tier, image, label, threshold) {
 async function initializeCompanion() {
     const tier = selectModelTier(getMemorySnapshot());
     if (!tier) throw new Error('Host has insufficient available unified memory for a companion model');
-    await detectTier(tier, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAB4Gx4gAAE7Bq0AAAAASUVORK5CYII=', 'base64'), 'object', 0.99);
+    await detectTier(tier, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BMQEAAADCoPVP7WENoAAAAG4MIAABt9NlCQAAAABJRU5ErkJggg==', 'base64'), 'object', 0.99);
     initializationError = null;
 }
 

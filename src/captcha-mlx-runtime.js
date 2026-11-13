@@ -6,7 +6,7 @@ const { APPLE_MLX_MANIFEST } = require('./captcha-model-manifest');
 const { downloadModelArtifacts, verifyArtifactDirectory } = require('./captcha-model-downloader');
 
 const PROBE_PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAB4Gx4gAAE7Bq0AAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAGUlEQVR4nO3BMQEAAADCoPVP7WENoAAAAG4MIAABt9NlCQAAAABJRU5ErkJggg==',
     'base64'
 );
 

@@ -147,7 +147,7 @@ async function rememberClickedTile(cells, index, seenTiles, beforeFingerprint = 
     const currentFingerprint = await tileFingerprint(cell);
     // A fast replacement may already be present by the time click() resolves.
     // Do not mark that unseen image as processed.
-    if (beforeFingerprint && currentFingerprint && currentFingerprint !== beforeFingerprint) return;
+    if (beforeFingerprint && (!currentFingerprint || currentFingerprint !== beforeFingerprint)) return;
     const image = await cell.screenshot({ type: 'png' }).catch(() => null);
     if (image) seenTiles.set(index, checksumBuffer(image));
 }
@@ -155,7 +155,10 @@ async function rememberClickedTile(cells, index, seenTiles, beforeFingerprint = 
 async function tileFingerprint(cell) {
     const source = typeof cell.evaluate === 'function' ? await cell.evaluate((element) => {
         const images = [...element.querySelectorAll('img')];
-        if (images.length) return images.map((image) => [image.currentSrc, image.src, image.style.transform].join('|')).join('\n');
+        if (images.length) {
+            if (images.some((image) => !image.complete || image.naturalWidth === 0)) return '';
+            return images.map((image) => [image.currentSrc, image.src, image.style.transform].join('|')).join('\n');
+        }
         const styled = [element, ...element.querySelectorAll('*')]
             .map((candidate) => getComputedStyle(candidate).backgroundImage)
             .filter((value) => value && value !== 'none');
@@ -189,7 +192,7 @@ async function waitForTileReplacement(page, cells, before, deadline, timeout = 2
         }
         if (!pending.size) {
             // Let the replacement animation finish before inference.
-            await page.waitForTimeout(Math.min(250, Math.max(0, deadline - Date.now())));
+            await page.waitForTimeout(Math.min(350, Math.max(0, deadline - Date.now())));
             return true;
         }
         await page.waitForTimeout(Math.min(100, Math.max(1, replacementDeadline - Date.now())));

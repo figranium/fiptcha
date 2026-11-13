@@ -47,9 +47,10 @@ def main():
             image = Image.open(io.BytesIO(base64.b64decode(request["imageBase64"], validate=True))).convert("RGB")
             label = str(request["label"]).strip()
             threshold = float(request.get("threshold", 0.18))
-            task = f"<OPEN_VOCABULARY_DETECTION>{label}"
+            task = "<OPEN_VOCABULARY_DETECTION>"
+            prompt = f"{task}{label}"
             with contextlib.redirect_stdout(sys.stderr):
-                result = generate(model, processor, task, image, max_tokens=64, temperature=0.0)
+                result = generate(model, processor, prompt, image, max_tokens=256, temperature=0.0)
             text = result.text if hasattr(result, "text") else str(result)
             parsed = processor.post_process_generation(text, task=task, image_size=image.size)
             emit({"id": request_id, "detections": extract_detections(parsed, label, threshold)})

@@ -18,7 +18,8 @@ const threshold = fiptcha.selectConfidenceThreshold([
   { score: 0.1, match: false }
 ], { minimumRecall: 1, minimumF1: 0.8 });
 assert.strictEqual(threshold.recall, 1);
-assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'owlvit');
+assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'florence2');
+assert.strictEqual(fiptcha.selectModelTier({ totalMb: 8192, availableMb: 2048 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'florence2');
 assert.strictEqual(fiptcha.selectModelTier({ totalMb: 1024, availableMb: 256 }, { CAPTCHA_MODEL_TIER: 'auto' }), null);
 assert.strictEqual(normalizeModelLabel('bicycles'), 'bicycle');
 assert.strictEqual(normalizeModelLabel('traffic lights'), 'traffic light');
@@ -42,9 +43,25 @@ const advertised2GbInMiB = 2_000_000_000 / (1024 * 1024);
 assert(advertised2GbInMiB > 1907 && advertised2GbInMiB < 2048);
 assert.strictEqual(
   fiptcha.selectModelTier({ totalMb: advertised2GbInMiB, availableMb: 768 }, { CAPTCHA_MODEL_TIER: 'auto' }),
-  'owlvit',
-  'A provider-advertised 2 GB host should qualify even though it is less than 2 GiB'
+  'florence2',
+  'A provider-advertised 2 GB host should qualify for Florence-2 even though it is less than 2 GiB'
 );
+
+const parsedRegions = fiptcha.parseFlorenceRegions(
+  '</s><s>red car<loc_100><loc_200><loc_500><loc_600><loc_600><loc_200><loc_900><loc_600></s>',
+  [300, 300]
+);
+assert.strictEqual(parsedRegions.length, 2);
+assert.strictEqual(parsedRegions[0].label, 'red car');
+assert.strictEqual(parsedRegions[1].label, 'red car');
+assert(parsedRegions[0].box[0] > 30 && parsedRegions[0].box[2] < 151);
+
+assert.strictEqual(fiptcha.matchesTargetLabel('red car', 'car'), true);
+assert.strictEqual(fiptcha.matchesTargetLabel('yellow school bus', 'bus'), true);
+assert.strictEqual(fiptcha.matchesTargetLabel('land vehicle', 'car'), true);
+assert.strictEqual(fiptcha.matchesTargetLabel('traffic light', 'traffic light'), true);
+assert.strictEqual(fiptcha.matchesTargetLabel('red car', 'fire hydrant'), false);
+assert.strictEqual(fiptcha.matchesTargetLabel('blue sky', 'bus'), false);
 
 async function testDelayedCheckboxFrame() {
   let scans = 0;

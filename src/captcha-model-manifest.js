@@ -29,8 +29,9 @@ const MODEL_MANIFESTS = Object.freeze({
             decoder_model_merged: 'q4'
         }),
         kind: 'florence2',
-        minimumTotalMb: 8192,
-        minimumAvailableMb: 2048,
+        // 2 GB in provider/VM sizing is decimal bytes (~1907 MiB), not 2 GiB.
+        minimumTotalMb: 1907,
+        minimumAvailableMb: 512,
         threshold: 0.18,
         files: Object.freeze([
             { path: 'added_tokens.json', size: 22410, sha256: 'ba67457c577895525996e7a42d7da60a05856506ea4fd25ff9a023a64662f74b' },
