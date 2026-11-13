@@ -8,5 +8,6 @@ module.exports = {
   ...require('./src/captcha-model-downloader'),
   ...require('./src/captcha-model-manager'),
   ...require('./src/captcha-model-manifest'),
-  ...require('./src/captcha-resources')
+  ...require('./src/captcha-resources'),
+  ...require('./src/captcha-text-solver')
 };

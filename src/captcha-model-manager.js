@@ -310,18 +310,27 @@ class CaptchaModelManager {
                     .filter((region) => matchesTargetLabel(region.label, label))
                     .map((region) => ({ box: region.box, label: region.label || label, score: threshold }));
             },
+            async recognizeText(imageBuffer) {
+                const image = await transformers.RawImage.fromBlob(new Blob([imageBuffer], { type: 'image/png' }));
+                const task = '<OCR>';
+                const prompts = processor.construct_prompts(task);
+                const inputs = await processor(image, prompts);
+                const generated = await model.generate({ ...inputs, max_new_tokens: 64, num_beams: 1 });
+                const decoded = tokenizer.batch_decode(generated, { skip_special_tokens: false })[0];
+                return String(decoded || '').replaceAll('<s>', '').replaceAll('</s>', '').trim();
+            },
             async probe() { await this.detect(PROBE_PNG, 'object', 0.99); },
             async dispose() { await model.dispose?.(); }
         };
     }
 
-    async detect(imageBuffer, label, threshold) {
+    async _enqueueInference(operation) {
         if (this.isSkipped()) throw new Error('Local CAPTCHA model disabled by SKIP_LOCAL_CAPTCHA_MODEL');
         const run = async () => {
             const runtime = await this.reconcile();
             if (!runtime) throw this.lastError || new Error('Local CAPTCHA model is unavailable');
             try {
-                return await runtime.detect(imageBuffer, label, threshold ?? modelThreshold(this.activeTier));
+                return await operation(runtime);
             } catch (error) {
                 if (isCapacityFailure(error)) {
                     await runtime.dispose?.().catch?.(() => undefined);
@@ -337,6 +346,20 @@ class CaptchaModelManager {
         const resultPromise = this.inferenceQueue.then(run, run);
         this.inferenceQueue = resultPromise.catch(() => undefined);
         return resultPromise;
+    }
+
+    async detect(imageBuffer, label, threshold) {
+        return this._enqueueInference((runtime) =>
+            runtime.detect(imageBuffer, label, threshold ?? modelThreshold(this.activeTier)));
+    }
+
+    async recognizeText(imageBuffer) {
+        return this._enqueueInference((runtime) => {
+            if (typeof runtime.recognizeText !== 'function') {
+                throw new Error(`OCR is not supported by the active ${this.activeTier || 'unknown'} CAPTCHA backend`);
+            }
+            return runtime.recognizeText(imageBuffer);
+        });
     }
 
     status() {

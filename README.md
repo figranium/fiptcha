@@ -59,6 +59,7 @@ Pass one of these values as `captchaType`:
 | `recaptcha_v2` | Interacts with the checkbox and solves supported image-grid challenges locally when required. |
 | `hcaptcha` | Interacts with the widget and solves supported image-grid challenges locally when required. |
 | `turnstile` | Performs active-browser interaction and waits for a token. It does not use the image-grid vision path. |
+| `distorted_text` | Captures the CAPTCHA image, runs local Florence-2 `<OCR>`, and fills the CAPTCHA input. |
 
 > [!WARNING]
 > **3×3 image-grid stability is currently not good.** Dynamic 3×3 challenges, particularly those that replace tiles after a selection, may be unreliable. 4×4 static image-grid challenges are currently the more stable path.
@@ -91,6 +92,7 @@ Required. One of:
 recaptcha_v2
 hcaptcha
 turnstile
+distorted_text
 ```
 
 #### `options.timeout`

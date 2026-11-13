@@ -403,6 +403,48 @@ async function testPointerClickDoesNotScrollOffscreenTargetsIntoView() {
   assert.strictEqual(pointerClicks, 0);
 }
 
+async function testDistortedTextCaptchaSolver() {
+  assert.strictEqual(fiptcha.normalizeRecognizedText(' 9 3W8 \n'), '93W8');
+  assert.strictEqual(fiptcha.normalizeRecognizedText('A7-K9P!', { alphanumericOnly: true }), 'A7K9P');
+
+  const originalRecognizeText = captchaModelManager.recognizeText;
+  let filledValue = null;
+  let submitted = 0;
+  const imageEl = {
+    isVisible: async () => true,
+    screenshot: async () => Buffer.from('fake-png')
+  };
+  const inputEl = {
+    isVisible: async () => true,
+    fill: async (value) => { filledValue = value; }
+  };
+  const submitEl = {
+    isVisible: async () => true,
+    click: async () => { submitted += 1; }
+  };
+  const empty = { count: async () => 0, nth: () => null };
+  const page = {
+    frames: () => [],
+    locator: (selector) => {
+      if (selector === 'img[alt*="captcha" i]') return { count: async () => 1, nth: () => imageEl };
+      if (selector === 'input[name*="captcha" i]') return { count: async () => 1, nth: () => inputEl };
+      if (selector === '#submit-captcha') return { count: async () => 1, nth: () => submitEl };
+      return empty;
+    }
+  };
+  captchaModelManager.recognizeText = async () => ' A7 K9P ';
+  try {
+    const logs = [];
+    const text = await fiptcha.solveTextCaptcha(page, { submitSelector: '#submit-captcha', logs });
+    assert.strictEqual(text, 'A7K9P');
+    assert.strictEqual(filledValue, 'A7K9P');
+    assert.strictEqual(submitted, 1);
+    assert(logs.some((entry) => entry.includes('A7K9P')));
+  } finally {
+    captchaModelManager.recognizeText = originalRecognizeText;
+  }
+}
+
 Promise.resolve()
   .then(testDelayedCheckboxFrame)
   .then(testHiddenFirstCheckboxMatch)
@@ -415,6 +457,7 @@ Promise.resolve()
   .then(testDynamicRecaptchaWaitsForReplacementTile)
   .then(testFourByFourWaitsForNextRound)
   .then(testPointerClickDoesNotScrollOffscreenTargetsIntoView)
+  .then(testDistortedTextCaptchaSolver)
   .then(() => console.log('fiptcha checkbox interaction tests passed'))
   .catch((error) => {
     console.error(error);

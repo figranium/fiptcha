@@ -1,5 +1,6 @@
 const { captchaModelManager } = require('./captcha-model-manager');
 const { solveImageGrid, PROVIDERS } = require('./captcha-grid-solver');
+const { solveTextCaptcha } = require('./captcha-text-solver');
 const { clickVisibleTarget } = require('./captcha-pointer');
 
 const TOKEN_SELECTORS = Object.freeze({
@@ -130,15 +131,47 @@ async function executeHcaptchaWidget(page) {
     }).catch(() => false);
 }
 
-async function solveLocalCaptcha(page, { captchaType, timeout = 60_000, logs = [] } = {}) {
-    if (!['recaptcha_v2', 'hcaptcha', 'turnstile'].includes(captchaType)) {
+async function solveLocalCaptcha(page, {
+    captchaType,
+    timeout = 60_000,
+    logs = [],
+    imageSelector,
+    inputSelector,
+    submitSelector,
+    stripWhitespace = true,
+    alphanumericOnly = false
+} = {}) {
+    if (!['recaptcha_v2', 'hcaptcha', 'turnstile', 'distorted_text'].includes(captchaType)) {
         throw new Error(`Local solver does not support ${captchaType}`);
     }
     const deadline = Date.now() + Math.max(1, timeout);
     let usedVisionModel = false;
-    const modelReadiness = ['recaptcha_v2', 'hcaptcha'].includes(captchaType)
+    const modelReadiness = ['recaptcha_v2', 'hcaptcha', 'distorted_text'].includes(captchaType)
         ? captchaModelManager.reconcile().then((runtime) => ({ runtime }), (error) => ({ error }))
         : null;
+    if (captchaType === 'distorted_text') {
+        const readiness = await modelReadiness;
+        if (readiness?.error) throw new Error(`vision backend unavailable: ${readiness.error.message}`);
+        if (!readiness?.runtime) throw new Error(captchaModelManager.status().error || 'vision backend unavailable');
+        usedVisionModel = true;
+        const text = await solveTextCaptcha(page, {
+            imageSelector,
+            inputSelector,
+            submitSelector,
+            stripWhitespace,
+            alphanumericOnly,
+            deadline,
+            logs
+        });
+        const status = captchaModelManager.status();
+        return {
+            token: text,
+            text,
+            provider: 'local',
+            ...(status.activeTier ? { model: status.activeTier } : {}),
+            device: status.device || 'cpu'
+        };
+    }
     let token = await readToken(page, captchaType);
     if (!token) {
         // Invisible hCaptcha has no checkbox; do not spend ten seconds looking
