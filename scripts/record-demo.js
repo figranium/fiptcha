@@ -62,17 +62,29 @@ async function main() {
           return true;
         }
       });
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
-      if (url.startsWith(base)) {
-        await page.waitForFunction(() => window.__ready, null, { timeout: 30_000 });
+      let solved = false;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded' });
+          if (url.startsWith(base)) {
+            await page.waitForFunction(() => window.__ready, null, { timeout: 30_000 });
+          }
+          const result = await solveLocalCaptcha(page, {
+            captchaType,
+            timeout: 180_000,
+            logs: logger,
+            ...extra
+          });
+          console.log(captchaType, 'RESULT:', result);
+          solved = true;
+          break;
+        } catch (error) {
+          console.warn(`[${captchaType}] attempt ${attempt}/3 failed: ${error.message}`);
+          if (attempt === 3) throw error;
+          await page.waitForTimeout(1000);
+        }
       }
-      const result = await solveLocalCaptcha(page, {
-        captchaType,
-        timeout: 180_000,
-        logs: logger,
-        ...extra
-      });
-      console.log(captchaType, 'RESULT:', result);
+      if (!solved) throw new Error(`${captchaType} failed after 3 attempts`);
       await page.waitForTimeout(1000);
     }
   } finally {

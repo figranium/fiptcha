@@ -276,7 +276,8 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
         if (!frame) throw new Error(`${captchaType} image challenge frame disappeared`);
         const rejection = await visibleText(frame, adapter.error);
         if (rejection && round > 0) {
-            throw new Error(`${captchaType} rejected the previous selection: ${rejection.replace(/\s+/g, ' ').trim()}`);
+            logs.push(`Local ${captchaType} grid round ${round + 1} retrying after rejection: ${rejection.replace(/\s+/g, ' ').trim()}`);
+            seenTiles.clear();
         }
         const instruction = await visibleText(frame, adapter.instruction);
         const prompt = normalizePrompt(adapter, instruction);
