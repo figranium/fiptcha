@@ -85,10 +85,8 @@ function selectModelDevice(env = process.env, resources = { onnxBackends: ['cpu'
         throw new Error(`Invalid CAPTCHA_MODEL_DEVICE "${requested}"; expected auto or cpu`);
     }
     if (requested === 'cpu') return 'cpu';
-    if (parseFlag(env.CAPTCHA_COMPANION_MODE) && process.platform === 'darwin' && resources.onnxBackends?.includes('coreml')) return 'coreml';
     if (resources.accelerators?.some((item) => item.type === 'cuda') && resources.onnxBackends?.includes('cuda')) return 'cuda';
     if (resources.accelerators?.some((item) => item.type === 'webgpu') && resources.onnxBackends?.includes('webgpu')) return 'webgpu';
-    if (process.platform === 'darwin' && resources.onnxBackends?.includes('coreml')) return 'coreml';
     return 'cpu';
 }
 
@@ -273,11 +271,12 @@ class CaptchaModelManager {
 
     async _loadLocalRuntime(tier, modelDir, device) {
         const definition = MODEL_MANIFESTS[tier];
+        const runtimeDevice = device === 'coreml' ? 'cpu' : device;
         const transformers = await import('@huggingface/transformers');
         transformers.env.allowRemoteModels = false;
         transformers.env.allowLocalModels = true;
         transformers.env.useFSCache = false;
-        const common = { dtype: definition.dtype, device, local_files_only: true };
+        const common = { dtype: definition.dtype, device: runtimeDevice, local_files_only: true };
         if (definition.kind === 'owlvit') {
             const detector = await transformers.pipeline('zero-shot-object-detection', modelDir, common);
             return {
