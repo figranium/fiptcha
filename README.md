@@ -105,6 +105,9 @@ Default:
 60_000
 ```
 
+> [!TIP]
+> On CPU-only hosts, Florence-2 takes ~4–5s per inference. Consider passing a higher timeout (for example, `120_000`) for multi-round 3×3 or 4×4 image grids.
+
 #### `options.logs`
 
 Optional array. Fiptcha appends diagnostic messages to it while solving.
@@ -120,6 +123,16 @@ await solveLocalCaptcha(page, {
 console.log(logs);
 ```
 
+#### `distorted_text` options
+
+When `captchaType` is `'distorted_text'`, you can also pass:
+
+- `imageSelector`: CSS selector for the CAPTCHA `<img>` or `<canvas>` (auto-detected if omitted).
+- `inputSelector`: CSS selector for the text input to fill (auto-detected if omitted).
+- `submitSelector`: Optional CSS selector for a submit button to click after filling.
+- `stripWhitespace`: Strip whitespace from OCR output (default `true`).
+- `alphanumericOnly`: Strip non-alphanumeric characters from OCR output (default `false`).
+
 ### Return value
 
 A successful solve returns an object similar to:
@@ -133,7 +146,7 @@ A successful solve returns an object similar to:
 }
 ```
 
-`model` is omitted when no vision model was needed.
+`model` is omitted when no vision model was needed. For `distorted_text`, `text` is also included with the recognized string (matching `token`).
 
 ### Errors
 
@@ -141,6 +154,7 @@ A successful solve returns an object similar to:
 
 - the requested CAPTCHA type is unsupported;
 - a challenge never exposes a usable token or image challenge;
+- a `distorted_text` challenge has no visible image or produces empty OCR output;
 - a required vision backend cannot be prepared;
 - the challenge ends without producing a token;
 - Turnstile does not issue a token after browser interaction.
@@ -194,13 +208,13 @@ Your application should remain responsible for:
 - persistence;
 - translating Fiptcha errors/results into your own execution model.
 
-Fiptcha is responsible for the CAPTCHA-specific runtime: token detection, widget interaction, grid solving, model selection, model downloads, resource checks, and optional companion runtimes.
+Fiptcha is responsible for the CAPTCHA-specific runtime: token detection, widget interaction, grid solving, OCR, model downloads, resource checks, and optional companion runtimes.
 
 ## Models and memory requirements
 
 Fiptcha does not bundle large model weights into the npm package. Required assets are acquired when needed.
 
-The runtime chooses an appropriate backend based on available resources. A provider-advertised **2 GB** machine is interpreted using decimal sizing (2,000,000,000 bytes, about 1907 MiB) rather than requiring 2048 MiB.
+All qualifying machines use **Florence-2** (`onnx-community/Florence-2-base-ft`, or `mlx-community/Florence-2-base-ft-4bit` on Apple Silicon via the MLX companion) by default. A provider-advertised **2 GB** machine is interpreted using decimal sizing (2,000,000,000 bytes, about 1907 MiB) rather than requiring 2048 MiB, with at least 512 MiB available memory. You can still explicitly override the tier with `CAPTCHA_MODEL_TIER=owlvit` if needed.
 
 If your application runs in an ephemeral container, persist the model/cache directory so models do not need to be downloaded again on every container recreation.
 
@@ -275,6 +289,7 @@ Check that `captchaType` is exactly one of:
 recaptcha_v2
 hcaptcha
 turnstile
+distorted_text
 ```
 
 ### `vision backend unavailable`
