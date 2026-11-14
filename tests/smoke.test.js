@@ -225,9 +225,9 @@ async function testGridFusesPartialWholeGridAndTileDetections() {
   };
   try {
     assert.deepStrictEqual(
-      await classifyGrid(frame, PROVIDERS.recaptcha_v2, locator, 'bus', new Map()),
+      await classifyGrid(frame, PROVIDERS.recaptcha_v2, locator, 'bus', new Map(), { fuseTiles: true }),
       [4, 8],
-      'tile inference must supplement a partial whole-grid result'
+      'tile inference must supplement a partial whole-grid result when fuseTiles is enabled'
     );
   } finally {
     captchaModelManager.detect = originalDetect;

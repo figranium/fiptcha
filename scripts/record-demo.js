@@ -62,21 +62,17 @@ async function main() {
           return true;
         }
       });
-      try {
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
-        if (url.startsWith(base)) {
-          await page.waitForFunction(() => window.__ready, null, { timeout: 30_000 });
-        }
-        const result = await solveLocalCaptcha(page, {
-          captchaType,
-          timeout: 180_000,
-          logs: logger,
-          ...extra
-        });
-        console.log(captchaType, 'RESULT:', result);
-      } catch (error) {
-        console.error(captchaType, 'FAILED:', error.message);
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      if (url.startsWith(base)) {
+        await page.waitForFunction(() => window.__ready, null, { timeout: 30_000 });
       }
+      const result = await solveLocalCaptcha(page, {
+        captchaType,
+        timeout: 180_000,
+        logs: logger,
+        ...extra
+      });
+      console.log(captchaType, 'RESULT:', result);
       await page.waitForTimeout(1000);
     }
   } finally {

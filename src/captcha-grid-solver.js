@@ -109,7 +109,7 @@ function mapDetectionsToCells(detections, gridBox, cellBoxes, imageSize = null) 
     return [...indexes];
 }
 
-async function classifyGrid(frame, adapter, cells, label, seenTiles) {
+async function classifyGrid(frame, adapter, cells, label, seenTiles, { onMatch, fuseTiles = false } = {}) {
     const modelLabel = normalizeModelLabel(label);
     const count = await cells.count();
     const mapped = new Set();
@@ -142,21 +142,27 @@ async function classifyGrid(frame, adapter, cells, label, seenTiles) {
         }
     }
 
-    // On 4x4 grids (a single split photo), a successful whole-grid pass already
-    // covers the image; skipping 16 per-tile passes avoids ~64s of CPU latency.
-    if (count === 16 && mapped.size > 0) {
-        for (const entry of tileEntries) seenTiles.set(entry.index, entry.fingerprint);
-        return tileEntries.filter((entry) => entry.unseen && mapped.has(entry.index)).map((entry) => entry.index);
+    // When whole-grid detection already found matching cells, use those directly
+    // instead of running 9-16 extra per-tile model passes (unless fuseTiles is set).
+    if (mapped.size > 0 && !fuseTiles) {
+        const matched = [];
+        for (const entry of tileEntries) {
+            if (!entry.unseen) continue;
+            seenTiles.set(entry.index, entry.fingerprint);
+            if (mapped.has(entry.index)) {
+                if (onMatch) await onMatch(entry.index);
+                matched.push(entry.index);
+            }
+        }
+        return matched;
     }
 
     const selected = [];
     for (const entry of tileEntries) {
         if (!entry.unseen) continue;
         seenTiles.set(entry.index, entry.fingerprint);
-        // A whole-grid pass is fast and preserves objects spanning cell edges,
-        // while a tile pass retains detail on dense grids. Fuse both: a
-        // partial grid result must not suppress tile-level matches elsewhere.
         if (mapped.has(entry.index) || (await captchaModelManager.detect(entry.image, modelLabel)).length) {
+            if (onMatch) await onMatch(entry.index);
             selected.push(entry.index);
         }
     }
@@ -286,15 +292,16 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
             const cells = frame.locator(adapter.cells);
             const count = await cells.count();
             if (![9, 16].includes(count)) throw new Error(`Unsupported ${captchaType} grid size (${count} cells)`);
-            const selected = await classifyGrid(frame, adapter, cells, prompt, seenTiles);
-            // Grid cells live inside a provider iframe. Let Playwright target the
-            // element in that frame instead of sending a page-level mouse click:
-            // the latter can miss the cell when iframe coordinates change.
-            const before = await tileFingerprints(cells, selected);
-            for (const index of selected) {
-                await cells.nth(index).click({ timeout: 2000 });
-                await rememberClickedTile(cells, index, seenTiles, before.get(index));
-            }
+            const before = new Map();
+            const selected = await classifyGrid(frame, adapter, cells, prompt, seenTiles, {
+                onMatch: async (index) => {
+                    const cell = cells.nth(index);
+                    const fingerprint = await tileFingerprint(cell);
+                    if (fingerprint) before.set(index, fingerprint);
+                    await cell.click({ timeout: 2000 });
+                    await rememberClickedTile(cells, index, seenTiles, fingerprint);
+                }
+            });
             totalSelections += selected.length;
             if (!selected.length) break;
             // Dynamic 3x3 challenges replace selected tiles. Static and 4x4
