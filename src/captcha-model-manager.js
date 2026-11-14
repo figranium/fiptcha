@@ -377,25 +377,25 @@ const captchaModelManager = new CaptchaModelManager();
 const LABEL_SYNONYMS = Object.freeze({
     car: ['car', 'automobile', 'sedan', 'suv', 'van', 'minivan', 'cab', 'taxi', 'pickup truck', 'jeep', 'land vehicle', 'vehicle'],
     vehicle: ['vehicle', 'land vehicle', 'car', 'bus', 'truck', 'van', 'motorcycle', 'suv'],
-    bus: ['bus', 'coach', 'school bus', 'transit bus', 'trolleybus', 'double decker bus'],
-    bicycle: ['bicycle', 'bike', 'cycle', 'mountain bike', 'road bike'],
+    bus: ['bus', 'coach', 'school bus', 'transit bus', 'city bus', 'tour bus', 'shuttle bus', 'minibus', 'trolleybus', 'double decker bus'],
+    bicycle: ['bicycle', 'bike', 'cycle', 'mountain bike', 'road bike', 'bicycle wheel'],
     motorcycle: ['motorcycle', 'motorbike', 'scooter', 'moped', 'dirt bike'],
-    'traffic light': ['traffic light', 'traffic signal', 'stoplight', 'stop light', 'signal light'],
-    'fire hydrant': ['fire hydrant', 'hydrant', 'fireplug'],
+    'traffic light': ['traffic light', 'traffic signal', 'stoplight', 'stop light', 'signal light', 'traffic lamp'],
+    'fire hydrant': ['fire hydrant', 'hydrant', 'fireplug', 'red hydrant', 'yellow hydrant', 'water hydrant'],
     crosswalk: ['crosswalk', 'zebra crossing', 'pedestrian crossing', 'cross walk', 'street crossing', 'road crossing', 'white stripe', 'painted line', 'road marking', 'street marking'],
-    stair: ['stair', 'stairs', 'staircase', 'stairway', 'step', 'steps'],
-    boat: ['boat', 'ship', 'sailboat', 'motorboat', 'yacht', 'ferry', 'canoe', 'kayak', 'vessel', 'watercraft'],
-    bridge: ['bridge', 'overpass', 'viaduct', 'footbridge'],
-    chimney: ['chimney', 'smokestack', 'flue'],
-    'palm tree': ['palm tree', 'palm', 'coconut tree'],
+    stair: ['stair', 'stairs', 'staircase', 'stairway', 'step', 'steps', 'flight of stairs', 'stone step', 'concrete step', 'wooden stair', 'escalator'],
+    boat: ['boat', 'ship', 'sailboat', 'motorboat', 'fishing boat', 'speedboat', 'rowboat', 'cargo ship', 'cruise ship', 'yacht', 'ferry', 'canoe', 'kayak', 'vessel', 'watercraft'],
+    bridge: ['bridge', 'overpass', 'highway overpass', 'viaduct', 'footbridge', 'pedestrian bridge', 'suspension bridge', 'arch bridge', 'stone bridge', 'railway bridge'],
+    chimney: ['chimney', 'brick chimney', 'roof chimney', 'smokestack', 'flue', 'exhaust pipe'],
+    'palm tree': ['palm tree', 'palm', 'palm frond', 'coconut tree', 'tropical tree'],
     tree: ['tree', 'palm tree', 'pine tree', 'oak tree'],
-    tractor: ['tractor', 'farm vehicle'],
-    'parking meter': ['parking meter', 'meter'],
+    tractor: ['tractor', 'farm tractor', 'farm vehicle', 'agricultural vehicle'],
+    'parking meter': ['parking meter', 'parking machine', 'pay station', 'ticket machine', 'meter'],
     truck: ['truck', 'lorry', 'pickup', 'semi', 'van'],
     taxi: ['taxi', 'cab', 'taxicab', 'yellow cab'],
     airplane: ['airplane', 'plane', 'aircraft', 'jet', 'airliner'],
     train: ['train', 'locomotive', 'subway', 'tram', 'streetcar'],
-    mountain: ['mountain', 'hill', 'peak', 'ridge']
+    mountain: ['mountain', 'mountain peak', 'snowy mountain', 'mountain range', 'hill', 'hillside', 'peak', 'ridge']
 });
 
 function normalizePhrase(text) {

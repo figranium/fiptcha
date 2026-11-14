@@ -24,6 +24,7 @@
     "companion:start": "node scripts/captcha-companion.js",
     "companion:start:docker": "node scripts/captcha-companion.js --docker",
     "probe": "node scripts/captcha-container-probe.js",
+    "demo:video": "node scripts/record-demo.js",
     "test": "node tests/smoke.test.js"
   },
   "dependencies": {

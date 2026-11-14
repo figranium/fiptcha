@@ -12,7 +12,7 @@ const PROVIDERS = Object.freeze({
         // expected. Treating it as a rejection aborts valid dynamic challenges.
         error: '.rc-imageselect-error-select-more, .rc-imageselect-incorrect-response',
         cleanPrompt(text) {
-            return text.replace(/select all (images|squares) with/ig, '')
+            return text.replace(/select all (?:images|squares) (?:with|that contain|containing)/ig, '')
                 .replace(/click verify once there are none left/ig, '')
                 .replace(/if there are none, click skip/ig, '');
         }
@@ -28,8 +28,8 @@ const PROVIDERS = Object.freeze({
         noMatch: '.button-submit, button[type="submit"]',
         error: '.error-text, .challenge-error',
         cleanPrompt(text) {
-            return text.replace(/please (click|select) (on )?(all|each) (the )?(images|squares) (containing|with)/ig, '')
-                .replace(/if there are none, (click|select) (skip|next)/ig, '');
+            return text.replace(/please (?:click|select) (?:on )?(?:all|each) (?:the )?(?:images|squares) (?:containing|with)/ig, '')
+                .replace(/if there are none, (?:click|select) (?:skip|next)/ig, '');
         }
     })
 });
