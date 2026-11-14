@@ -55,6 +55,8 @@ async function solveTextCaptcha(page, {
     imageSelector,
     inputSelector,
     submitSelector,
+    successSelector,
+    errorSelector,
     stripWhitespace = true,
     alphanumericOnly = false,
     deadline = Date.now() + 60_000,
@@ -83,6 +85,31 @@ async function solveTextCaptcha(page, {
         if (submitSelector) {
             const submitLocator = await findTargetInPage(page, [submitSelector]);
             if (submitLocator) await submitLocator.click({ timeout: 2000 });
+        }
+    }
+
+    if (successSelector || errorSelector) {
+        const verifyDeadline = Math.min(deadline, Date.now() + 5000);
+        let verified = !successSelector;
+        while (Date.now() < verifyDeadline) {
+            if (errorSelector) {
+                const errEl = await findTargetInPage(page, [errorSelector]);
+                if (errEl) {
+                    const msg = await errEl.innerText({ timeout: 500 }).catch(() => '');
+                    throw new Error(`distorted_text verification failed${msg ? `: ${msg.trim()}` : ''}`);
+                }
+            }
+            if (successSelector) {
+                const okEl = await findTargetInPage(page, [successSelector]);
+                if (okEl) {
+                    verified = true;
+                    break;
+                }
+            }
+            await page.waitForTimeout(Math.min(100, Math.max(1, verifyDeadline - Date.now())));
+        }
+        if (!verified) {
+            throw new Error('distorted_text was not confirmed by successSelector');
         }
     }
 

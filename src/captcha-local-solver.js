@@ -138,6 +138,8 @@ async function solveLocalCaptcha(page, {
     imageSelector,
     inputSelector,
     submitSelector,
+    successSelector,
+    errorSelector,
     stripWhitespace = true,
     alphanumericOnly = false
 } = {}) {
@@ -158,6 +160,8 @@ async function solveLocalCaptcha(page, {
             imageSelector,
             inputSelector,
             submitSelector,
+            successSelector,
+            errorSelector,
             stripWhitespace,
             alphanumericOnly,
             deadline,

@@ -204,7 +204,7 @@ async function tileFingerprints(cells, indexes) {
     return fingerprints;
 }
 
-async function waitForTileReplacement(page, cells, before, deadline, timeout = 2500) {
+async function waitForTileReplacement(page, cells, before, deadline, timeout = 5000) {
     const replacementDeadline = Math.min(deadline, Date.now() + timeout);
     const pending = new Map(before);
     let changed = false;
@@ -218,7 +218,7 @@ async function waitForTileReplacement(page, cells, before, deadline, timeout = 2
         }
         if (!pending.size) {
             // Let the replacement animation finish before inference.
-            await page.waitForTimeout(Math.min(350, Math.max(0, deadline - Date.now())));
+            await page.waitForTimeout(Math.min(600, Math.max(0, deadline - Date.now())));
             return true;
         }
         await page.waitForTimeout(Math.min(100, Math.max(1, replacementDeadline - Date.now())));
@@ -299,7 +299,10 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
             if (!selected.length) break;
             // Dynamic 3x3 challenges replace selected tiles. Static and 4x4
             // challenges do not, so stop sweeping once no replacement occurs.
-            if (!dynamic || !await waitForTileReplacement(page, cells, before, deadline)) break;
+            const isDynamic = dynamic || (captchaType === 'recaptcha_v2'
+                && count === 9
+                && await frame.locator('.rc-imageselect-dynamic-selected').count().catch(() => 0) > 0);
+            if (!isDynamic || !await waitForTileReplacement(page, cells, before, deadline)) break;
         }
         logs.push(`Local ${captchaType} grid round ${round + 1}: selected ${totalSelections} cells for "${prompt}"`);
         const signature = await challengeSignature(frame, adapter);

@@ -20,7 +20,7 @@ const OCR_SVG = encodeURIComponent(
 const PAGES = {
   '/hcaptcha': `<!doctype html><html><body style="font-family:sans-serif;padding:40px"><h2>hCaptcha</h2><div id="w"></div><script>window.__ready=false;window.onLoad=()=>{hcaptcha.render("w",{sitekey:"20000000-ffff-ffff-ffff-000000000002"});window.__ready=true;};</script><script src="https://js.hcaptcha.com/1/api.js?onload=onLoad&render=explicit" async defer></script></body></html>`,
   '/turnstile': `<!doctype html><html><body style="font-family:sans-serif;padding:40px"><h2>Turnstile</h2><div id="w"></div><script>window.__ready=false;window.onLoad=()=>{turnstile.render("#w",{sitekey:"1x00000000000000000000AA"});window.__ready=true;};</script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onLoad&render=explicit" async defer></script></body></html>`,
-  '/distorted-text': `<!doctype html><html><body style="font-family:sans-serif;padding:40px"><h2>Distorted Text</h2><img alt="captcha" src="data:image/svg+xml,${OCR_SVG}" style="display:block;margin-bottom:12px;border:1px solid #ccc"/><input name="captcha" placeholder="Enter captcha" style="padding:8px;font-size:16px"/><button id="sub" onclick="document.getElementById('out').textContent='Submitted: '+document.querySelector('input').value">Verify</button><p id="out"></p><script>window.__ready=true;</script></body></html>`
+  '/distorted-text': `<!doctype html><html><body style="font-family:sans-serif;padding:40px"><h2>Distorted Text</h2><img alt="captcha" src="data:image/svg+xml,${OCR_SVG}" style="display:block;margin-bottom:12px;border:1px solid #ccc"/><input name="captcha" placeholder="Enter captcha" style="padding:8px;font-size:16px"/><button id="sub" onclick="const v=document.querySelector('input').value.trim();document.getElementById('out').textContent=v==='A7K9P'?'Verified: '+v:'';document.getElementById('err').textContent=v==='A7K9P'?'':'Incorrect';">Verify</button><p id="out" style="color:green"></p><p id="err" style="color:red"></p><script>window.__ready=true;</script></body></html>`
 };
 
 async function main() {
@@ -49,7 +49,7 @@ async function main() {
     ['https://www.google.com/recaptcha/api2/demo', 'recaptcha_v2', {}],
     [`${base}/hcaptcha`, 'hcaptcha', {}],
     [`${base}/turnstile`, 'turnstile', {}],
-    [`${base}/distorted-text`, 'distorted_text', { submitSelector: '#sub' }]
+    [`${base}/distorted-text`, 'distorted_text', { submitSelector: '#sub', successSelector: '#out', errorSelector: '#err' }]
   ];
 
   try {
