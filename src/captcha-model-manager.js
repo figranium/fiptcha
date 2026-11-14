@@ -302,7 +302,7 @@ class CaptchaModelManager {
                 const task = '<DENSE_REGION_CAPTION>';
                 const prompts = processor.construct_prompts(task);
                 const inputs = await processor(image, prompts);
-                const generated = await model.generate({ ...inputs, max_new_tokens: 256, num_beams: 1 });
+                const generated = await model.generate({ ...inputs, max_new_tokens: 128, num_beams: 1 });
                 const decoded = tokenizer.batch_decode(generated, { skip_special_tokens: false })[0];
                 const regions = parseFlorenceRegions(decoded, image.size);
                 return regions

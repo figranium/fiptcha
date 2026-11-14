@@ -111,28 +111,54 @@ function mapDetectionsToCells(detections, gridBox, cellBoxes, imageSize = null) 
 
 async function classifyGrid(frame, adapter, cells, label, seenTiles) {
     const modelLabel = normalizeModelLabel(label);
+    const count = await cells.count();
     const mapped = new Set();
-    const grid = frame.locator(adapter.grid).first();
-    const gridBox = await grid.boundingBox().catch(() => null);
-    if (gridBox) {
-        const image = await grid.screenshot({ type: 'png' });
-        const detections = await captchaModelManager.detect(image, modelLabel);
-        const cellBoxes = [];
-        for (let index = 0; index < await cells.count(); index += 1) cellBoxes.push(await cells.nth(index).boundingBox().catch(() => null));
-        for (const index of mapDetectionsToCells(detections, gridBox, cellBoxes, pngDimensions(image))) mapped.add(index);
-    }
 
-    const selected = [];
-    for (let index = 0; index < await cells.count(); index += 1) {
+    // Pre-read cell screenshots and skip whole-grid inference on dynamic
+    // replacement sweeps where most tiles are already cached in seenTiles.
+    const tileEntries = [];
+    for (let index = 0; index < count; index += 1) {
         const cell = cells.nth(index);
         const image = await cell.screenshot({ type: 'png' });
         const fingerprint = checksumBuffer(image);
-        if (seenTiles.get(index) === fingerprint) continue;
-        seenTiles.set(index, fingerprint);
+        const unseen = seenTiles.get(index) !== fingerprint;
+        tileEntries.push({ index, cell, image, fingerprint, unseen });
+    }
+    const unseenCount = tileEntries.filter((entry) => entry.unseen).length;
+    if (!unseenCount) return [];
+
+    const isReplacementSweep = seenTiles.size > 0 && unseenCount < count;
+    if (!isReplacementSweep) {
+        const grid = frame.locator(adapter.grid).first();
+        const gridBox = await grid.boundingBox().catch(() => null);
+        if (gridBox) {
+            const image = await grid.screenshot({ type: 'png' });
+            const detections = await captchaModelManager.detect(image, modelLabel);
+            const cellBoxes = [];
+            for (const entry of tileEntries) {
+                cellBoxes.push(await entry.cell.boundingBox().catch(() => null));
+            }
+            for (const index of mapDetectionsToCells(detections, gridBox, cellBoxes, pngDimensions(image))) mapped.add(index);
+        }
+    }
+
+    // On 4x4 grids (a single split photo), a successful whole-grid pass already
+    // covers the image; skipping 16 per-tile passes avoids ~64s of CPU latency.
+    if (count === 16 && mapped.size > 0) {
+        for (const entry of tileEntries) seenTiles.set(entry.index, entry.fingerprint);
+        return tileEntries.filter((entry) => entry.unseen && mapped.has(entry.index)).map((entry) => entry.index);
+    }
+
+    const selected = [];
+    for (const entry of tileEntries) {
+        if (!entry.unseen) continue;
+        seenTiles.set(entry.index, entry.fingerprint);
         // A whole-grid pass is fast and preserves objects spanning cell edges,
-        // while a tile pass retains detail on dense 4x4 grids. Fuse both: a
+        // while a tile pass retains detail on dense grids. Fuse both: a
         // partial grid result must not suppress tile-level matches elsewhere.
-        if (mapped.has(index) || (await captchaModelManager.detect(image, modelLabel)).length) selected.push(index);
+        if (mapped.has(entry.index) || (await captchaModelManager.detect(entry.image, modelLabel)).length) {
+            selected.push(entry.index);
+        }
     }
     return selected;
 }
@@ -251,7 +277,7 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
         const dynamic = captchaType === 'recaptcha_v2'
             && /(?:none left|new images|replaced)/i.test(instruction);
         if (!prompt) throw new Error(`${captchaType} solver could not read the image challenge instruction`);
-        if (prompt !== previousPrompt) {
+        if (prompt !== previousPrompt || round > 0) {
             seenTiles.clear();
             previousPrompt = prompt;
         }
@@ -280,7 +306,12 @@ async function solveImageGrid(page, { captchaType, deadline, waitForToken, logs 
         await frame.locator(totalSelections ? adapter.submit : adapter.noMatch).first().click({ timeout: 2000 });
         const result = await waitForSubmission(page, adapter, captchaType, signature, deadline, waitForToken);
         if (result.token) return result.token;
-        if (!result.transitioned) await page.waitForTimeout(Math.min(350, Math.max(0, deadline - Date.now())));
+        if (result.transitioned) {
+            seenTiles.clear();
+            await page.waitForTimeout(Math.min(400, Math.max(0, deadline - Date.now())));
+        } else {
+            await page.waitForTimeout(Math.min(350, Math.max(0, deadline - Date.now())));
+        }
     }
     return null;
 }
