@@ -1,6 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/figranium/fiptcha/main/banner.png" alt="Fiptcha Banner">
-  <br>
+  <br><br>
+
   <a href="https://www.npmjs.com/package/fiptcha" target="_blank"><img src="https://img.shields.io/npm/v/fiptcha.svg?style=for-the-badge&label=NPM&logo=npm&logoColor=white" alt="npm version"></a>
 
   <p><strong>Local CAPTCHA solving for browser automation.</strong></p>
