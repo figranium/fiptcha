@@ -2,8 +2,9 @@
   <img src="https://raw.githubusercontent.com/figranium/fiptcha/main/banner.png" alt="Fiptcha Banner">
   <br><br>
 
-  <a href="https://www.npmjs.com/package/fiptcha" target="_blank"><img src="https://img.shields.io/npm/v/fiptcha.svg?style=for-the-badge&label=NPM&logo=npm&logoColor=white" alt="npm version"></a>
   <a href="https://huggingface.co/figranium/fiptcha" target="_blank"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/model-on-hf-lg.svg" alt="Model on Hugging Face"></a>
+  <br><br>
+  <a href="https://www.npmjs.com/package/fiptcha" target="_blank"><img src="https://img.shields.io/npm/v/fiptcha.svg?style=for-the-badge&label=NPM&logo=npm&logoColor=white" alt="npm version"></a>
 
   <p><strong>Local CAPTCHA solving for browser automation.</strong></p>
 </div>
