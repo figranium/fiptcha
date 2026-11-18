@@ -18,8 +18,9 @@ const threshold = fiptcha.selectConfidenceThreshold([
   { score: 0.1, match: false }
 ], { minimumRecall: 1, minimumF1: 0.8 });
 assert.strictEqual(threshold.recall, 1);
-assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'florence2');
-assert.strictEqual(fiptcha.selectModelTier({ totalMb: 8192, availableMb: 2048 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'florence2');
+assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'fiptcha');
+assert.strictEqual(fiptcha.selectModelTier({ totalMb: 8192, availableMb: 2048 }, { CAPTCHA_MODEL_TIER: 'auto' }), 'fiptcha');
+assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'florence2' }), 'florence2');
 assert.strictEqual(fiptcha.selectModelTier({ totalMb: 1024, availableMb: 256 }, { CAPTCHA_MODEL_TIER: 'auto' }), null);
 assert.strictEqual(normalizeModelLabel('bicycles'), 'bicycle');
 assert.strictEqual(normalizeModelLabel('traffic lights'), 'traffic light');
@@ -43,8 +44,8 @@ const advertised2GbInMiB = 2_000_000_000 / (1024 * 1024);
 assert(advertised2GbInMiB > 1907 && advertised2GbInMiB < 2048);
 assert.strictEqual(
   fiptcha.selectModelTier({ totalMb: advertised2GbInMiB, availableMb: 768 }, { CAPTCHA_MODEL_TIER: 'auto' }),
-  'florence2',
-  'A provider-advertised 2 GB host should qualify for Florence-2 even though it is less than 2 GiB'
+  'fiptcha',
+  'A provider-advertised 2 GB host should qualify for Fiptcha even though it is less than 2 GiB'
 );
 
 const parsedRegions = fiptcha.parseFlorenceRegions(
@@ -445,6 +446,107 @@ async function testDistortedTextCaptchaSolver() {
   }
 }
 
+async function testDualModelRoutingAndHelpers() {
+  assert.strictEqual(fiptcha.selectModelTier({ totalMb: 4096, availableMb: 1024 }, { CAPTCHA_MODEL_TIER: 'fiptcha' }), 'fiptcha');
+  assert.strictEqual(fiptcha.expandFlorencePrompt('<OCR>'), 'What is the text in the image?');
+  assert.strictEqual(fiptcha.expandFlorencePrompt('<DENSE_REGION_CAPTION>'), 'Locate the objects in the image, with their descriptions.');
+  assert.strictEqual(
+    fiptcha.expandFlorencePrompt('<CAPTION_TO_PHRASE_GROUNDING>slider puzzle target'),
+    'Locate the phrases in the caption: slider puzzle target'
+  );
+  assert.strictEqual(fiptcha.unwrapOcrText("</s><s>Click(box=(10,20)),Type(content='9381')</s>"), '9381');
+  assert.strictEqual(fiptcha.unwrapOcrText('</s><s>1712</s>'), '1712');
+
+  const requestedTiers = [];
+  const disposedTiers = [];
+  const prevSkip = process.env.SKIP_LOCAL_CAPTCHA_MODEL;
+  delete process.env.SKIP_LOCAL_CAPTCHA_MODEL;
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fiptcha-dual-'));
+  const manager = new fiptcha.CaptchaModelManager({
+    modelRoot: tmpRoot,
+    resourceProvider: async () => ({
+      memory: { totalMb: 4096, availableMb: 2048 },
+      accelerators: [],
+      companion: null,
+      onnxBackends: ['cpu']
+    }),
+    verifier: async () => true,
+    runtimeLoader: async (tier) => {
+      requestedTiers.push(tier);
+      return {
+        tier,
+        device: 'cpu',
+        async probe() {},
+        async detect(_buf, label) { return [{ box: [0, 0, 10, 10], label, score: 0.9 }]; },
+        async ground(_buf, prompt) { return [{ box: [20, 30, 60, 70], label: prompt, score: 0.9 }]; },
+        async recognizeText() { return '4642'; },
+        async dispose() { disposedTiers.push(tier); }
+      };
+    }
+  });
+  try {
+    await manager.detect(Buffer.from('png'), 'car');
+    await manager.ground(Buffer.from('png'), 'slider puzzle target');
+    await manager.recognizeText(Buffer.from('png'));
+    assert.deepStrictEqual(requestedTiers, ['fiptcha']);
+    assert.deepStrictEqual(disposedTiers, []);
+    assert.strictEqual(manager.status().activeTier, 'fiptcha');
+
+    await manager.reconcile('florence2');
+    assert.deepStrictEqual(requestedTiers, ['fiptcha', 'florence2']);
+    assert.deepStrictEqual(disposedTiers, ['fiptcha']);
+    assert.strictEqual(manager.status().activeTier, 'florence2');
+  } finally {
+    await manager.stop();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    if (prevSkip !== undefined) process.env.SKIP_LOCAL_CAPTCHA_MODEL = prevSkip;
+  }
+}
+
+async function testUiGroundingCaptchaSolvers() {
+  const originalGround = captchaModelManager.ground;
+  const mouseEvents = [];
+  const empty = { count: async () => 0, nth: () => null };
+  const sliderHandle = {
+    isVisible: async () => true,
+    boundingBox: async () => ({ x: 20, y: 100, width: 20, height: 20 })
+  };
+  const page = {
+    frames: () => [],
+    screenshot: async () => Buffer.from('fake-viewport'),
+    locator: (selector) => selector === '[role="slider"]'
+      ? { count: async () => 1, nth: () => sliderHandle }
+      : empty,
+    mouse: {
+      move: async (x, y) => { mouseEvents.push(['move', Math.round(x), Math.round(y)]); },
+      down: async () => { mouseEvents.push(['down']); },
+      up: async () => { mouseEvents.push(['up']); },
+      click: async (x, y) => { mouseEvents.push(['click', Math.round(x), Math.round(y)]); }
+    }
+  };
+  captchaModelManager.ground = async () => [{ box: [180, 40, 220, 80], label: 'target', score: 0.9 }];
+  try {
+    const sliderResult = await fiptcha.solveUiCaptcha(page, { captchaType: 'slider_puzzle' });
+    assert.strictEqual(sliderResult.action, 'drag');
+    assert.deepStrictEqual(mouseEvents, [
+      ['move', 30, 110],
+      ['down'],
+      ['move', 200, 110],
+      ['up']
+    ]);
+
+    mouseEvents.length = 0;
+    const iconResult = await fiptcha.solveUiCaptcha(page, { captchaType: 'icon_click' });
+    assert.strictEqual(iconResult.action, 'click');
+    assert.deepStrictEqual(mouseEvents, [['click', 200, 60]]);
+  } finally {
+    captchaModelManager.ground = originalGround;
+  }
+}
+
 Promise.resolve()
   .then(testDelayedCheckboxFrame)
   .then(testHiddenFirstCheckboxMatch)
@@ -458,6 +560,8 @@ Promise.resolve()
   .then(testFourByFourWaitsForNextRound)
   .then(testPointerClickDoesNotScrollOffscreenTargetsIntoView)
   .then(testDistortedTextCaptchaSolver)
+  .then(testDualModelRoutingAndHelpers)
+  .then(testUiGroundingCaptchaSolvers)
   .then(() => console.log('fiptcha checkbox interaction tests passed'))
   .catch((error) => {
     console.error(error);

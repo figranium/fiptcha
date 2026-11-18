@@ -1,6 +1,7 @@
 const { captchaModelManager } = require('./captcha-model-manager');
 const { solveImageGrid, PROVIDERS } = require('./captcha-grid-solver');
 const { solveTextCaptcha } = require('./captcha-text-solver');
+const { solveUiCaptcha, UI_CAPTCHA_PROMPTS } = require('./captcha-ui-solver');
 const { clickVisibleTarget } = require('./captcha-pointer');
 
 const TOKEN_SELECTORS = Object.freeze({
@@ -137,19 +138,24 @@ async function solveLocalCaptcha(page, {
     logs = [],
     imageSelector,
     inputSelector,
+    challengeSelector,
+    sliderSelector,
+    targetPrompt,
     submitSelector,
     successSelector,
     errorSelector,
     stripWhitespace = true,
     alphanumericOnly = false
 } = {}) {
-    if (!['recaptcha_v2', 'hcaptcha', 'turnstile', 'distorted_text'].includes(captchaType)) {
+    const uiChallenge = Boolean(UI_CAPTCHA_PROMPTS[captchaType]);
+    if (!['recaptcha_v2', 'hcaptcha', 'turnstile', 'distorted_text'].includes(captchaType) && !uiChallenge) {
         throw new Error(`Local solver does not support ${captchaType}`);
     }
     const deadline = Date.now() + Math.max(1, timeout);
     let usedVisionModel = false;
-    const modelReadiness = ['recaptcha_v2', 'hcaptcha', 'distorted_text'].includes(captchaType)
-        ? captchaModelManager.reconcile().then((runtime) => ({ runtime }), (error) => ({ error }))
+    const preferredTier = 'fiptcha';
+    const modelReadiness = (['recaptcha_v2', 'hcaptcha', 'distorted_text'].includes(captchaType) || uiChallenge)
+        ? captchaModelManager.reconcile(preferredTier).then((runtime) => ({ runtime }), (error) => ({ error }))
         : null;
     if (captchaType === 'distorted_text') {
         const readiness = await modelReadiness;
@@ -171,6 +177,31 @@ async function solveLocalCaptcha(page, {
         return {
             token: text,
             text,
+            provider: 'local',
+            ...(status.activeTier ? { model: status.activeTier } : {}),
+            device: status.device || 'cpu'
+        };
+    }
+    if (uiChallenge) {
+        const readiness = await modelReadiness;
+        if (readiness?.error) throw new Error(`vision backend unavailable: ${readiness.error.message}`);
+        if (!readiness?.runtime) throw new Error(captchaModelManager.status().error || 'vision backend unavailable');
+        usedVisionModel = true;
+        const solved = await solveUiCaptcha(page, {
+            captchaType,
+            targetPrompt,
+            challengeSelector,
+            sliderSelector,
+            submitSelector,
+            successSelector,
+            errorSelector,
+            deadline,
+            logs
+        });
+        const status = captchaModelManager.status();
+        return {
+            token: solved.action,
+            ...solved,
             provider: 'local',
             ...(status.activeTier ? { model: status.activeTier } : {}),
             device: status.device || 'cpu'

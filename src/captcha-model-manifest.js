@@ -48,6 +48,33 @@ const MODEL_MANIFESTS = Object.freeze({
             { path: 'onnx/encoder_model_q4.onnx', size: 30058778, sha256: '34b17bcf191dacb79bd482b94bad5cf1ba39bc770f6a4c9ae26f28b89c235e4b' },
             { path: 'onnx/decoder_model_merged_q4.onnx', size: 64393474, sha256: 'be7a2f33e65f8d65538024772fda4d1c5a7752d60a7159aadf53f9f4798b90fa' }
         ])
+    }),
+    fiptcha: Object.freeze({
+        id: 'figranium/fiptcha',
+        revision: '516ac4d948326fdfce986cd74af343a429a43d99',
+        dtype: 'q8',
+        kind: 'fiptcha-onnx',
+        // 2 GB in provider/VM sizing is decimal bytes (~1907 MiB), not 2 GiB.
+        minimumTotalMb: 1907,
+        minimumAvailableMb: 512,
+        threshold: 0.18,
+        files: Object.freeze([
+            { path: 'added_tokens.json', size: 22410, sha256: 'ba67457c577895525996e7a42d7da60a05856506ea4fd25ff9a023a64662f74b' },
+            { path: 'config.json', size: 5859, sha256: '3d0c31813b9e92c31aa17f7a6887bfdb67e3af23d04cfce202253c7435d5719d' },
+            { path: 'generation_config.json', size: 292, sha256: 'cac0d87c98a8da961874a135690e8d5c55e0df5521dbcf909f049acee56d6b49' },
+            { path: 'merges.txt', size: 456318, sha256: '1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5' },
+            { path: 'preprocessor_config.json', size: 603, sha256: '1396ec5a0a7adfe1c04fb777b09e8ba753be6dbb5868212ab3c3ef39d91fe031' },
+            { path: 'processor_config.json', size: 130, sha256: '6eb1a2e487fa8b7521691a3382b5afd92a78e8ea34b385f8824fa07563e92245' },
+            { path: 'special_tokens_map.json', size: 146627, sha256: '72ff172dc769bc1551b1b4211628ce3271643bc60379e4da45d85a9be9332c39' },
+            { path: 'tokenizer.json', size: 3747961, sha256: '9b466914d9e7f9a39936c9bbe2ac28c86cd8b35c83a905699b01f83178f27c51' },
+            { path: 'tokenizer_config.json', size: 197773, sha256: '29290b47f21706f6a987cba4abb61e529fd71a607331860ace7c88d47041960a' },
+            { path: 'vocab.json', size: 798293, sha256: 'ed19656ea1707df69134c4af35c8ceda2cc9860bf2c3495026153a133670ab5e' },
+            { path: 'vision_encoder.onnx', size: 94664501, sha256: 'a77c5b82948495f84a7e2df754e0b0598c50b456ddbee62e9b22fa4e2ddf38f6' },
+            { path: 'embed_tokens.onnx', size: 39390525, sha256: '4331eaaa9efb208e24d32773631b0546ffde45bd20b821978c523155b9f79a00' },
+            { path: 'encoder_model.onnx', size: 43881553, sha256: '043275858ff240e6ecaa6af2cd01ae85ce953ad748cdfe66410b6add8a0b0a14' },
+            { path: 'decoder_model.onnx', size: 137616940, sha256: 'bd8ab0fdab176927517b38d1ab0de689f4f4afc9f1683760f1b9bca7e65cc0e5' },
+            { path: 'decoder_with_past_model.onnx', size: 130418963, sha256: '6179d939ea05fb97de91de4c00064c85c4c6b389a599e475dd97797792c12fcf' }
+        ])
     })
 });
 

@@ -46,8 +46,8 @@ function selectModelTier(input = getMemorySnapshot(), env = process.env) {
     if (parseFlag(env.SKIP_LOCAL_CAPTCHA_MODEL)) return null;
     const resources = normalizedResources(input);
     const requested = String(env.CAPTCHA_MODEL_TIER || 'auto').trim().toLowerCase();
-    if (!['auto', 'owlvit', 'florence2'].includes(requested)) {
-        throw new Error(`Invalid CAPTCHA_MODEL_TIER "${requested}"; expected auto, owlvit, or florence2`);
+    if (!['auto', 'owlvit', 'florence2', 'fiptcha'].includes(requested)) {
+        throw new Error(`Invalid CAPTCHA_MODEL_TIER "${requested}"; expected auto, owlvit, florence2, or fiptcha`);
     }
     const forceCpu = String(env.CAPTCHA_MODEL_DEVICE || 'auto').trim().toLowerCase() === 'cpu';
     const owlQualified = qualifiesMemory(resources.memory, MODEL_MANIFESTS.owlvit)
@@ -55,11 +55,13 @@ function selectModelTier(input = getMemorySnapshot(), env = process.env) {
     if (!owlQualified) return null;
     const florenceQualified = qualifiesMemory(resources.memory, MODEL_MANIFESTS.florence2)
         || (!forceCpu && Boolean(qualifyingAccelerator(resources, MODEL_MANIFESTS.florence2)));
-    if (requested === 'florence2' && !florenceQualified) {
-        throw new Error('CAPTCHA_MODEL_TIER=florence2 requires at least 2 GB effective memory and 512 MiB available');
+    if ((requested === 'florence2' || requested === 'fiptcha') && !florenceQualified) {
+        throw new Error(`CAPTCHA_MODEL_TIER=${requested} requires at least 2 GB effective memory and 512 MiB available`);
     }
     if (requested === 'owlvit') return 'owlvit';
-    return florenceQualified ? 'florence2' : 'owlvit';
+    if (requested === 'florence2') return 'florence2';
+    if (requested === 'fiptcha') return 'fiptcha';
+    return florenceQualified ? 'fiptcha' : 'owlvit';
 }
 
 function selectModelBackend(tier, input) {
@@ -95,11 +97,13 @@ function isCapacityFailure(error) {
 }
 
 function modelThreshold(tier, env = process.env) {
-    const variable = tier === 'florence2' ? 'CAPTCHA_FLORENCE2_THRESHOLD' : 'CAPTCHA_OWLVIT_THRESHOLD';
+    const variable = tier === 'fiptcha'
+        ? 'CAPTCHA_FIPTCHA_THRESHOLD'
+        : (tier === 'florence2' ? 'CAPTCHA_FLORENCE2_THRESHOLD' : 'CAPTCHA_OWLVIT_THRESHOLD');
     const configured = Number(env[variable]);
     return Number.isFinite(configured) && configured >= 0 && configured <= 1
         ? configured
-        : MODEL_MANIFESTS[tier].threshold;
+        : (MODEL_MANIFESTS[tier]?.threshold ?? 0.18);
 }
 
 class CaptchaModelManager {
@@ -152,19 +156,35 @@ class CaptchaModelManager {
         this.activeBackend = null;
     }
 
-    async reconcile() {
-        if (this.reconcilePromise) return this.reconcilePromise;
-        this.reconcilePromise = this._reconcile().finally(() => { this.reconcilePromise = null; });
+    async reconcile(requestedTier = null) {
+        if (this.reconcilePromise) {
+            const current = await this.reconcilePromise;
+            if (!requestedTier || this.activeTier === requestedTier) return current;
+        }
+        this.reconcilePromise = this._reconcile(requestedTier).finally(() => { this.reconcilePromise = null; });
         return this.reconcilePromise;
     }
 
-    async _reconcile() {
+    async _reconcile(requestedTier = null) {
         if (this.isSkipped()) {
             await this.stop();
             return null;
         }
         const resources = await this.resourceProvider();
-        const targetTier = selectModelTier(resources);
+        const pinned = String(process.env.CAPTCHA_MODEL_TIER || 'auto').trim().toLowerCase();
+        const effectiveEnv = (requestedTier && pinned === 'auto')
+            ? { ...process.env, CAPTCHA_MODEL_TIER: requestedTier }
+            : process.env;
+        let targetTier;
+        try {
+            targetTier = selectModelTier(resources, effectiveEnv);
+        } catch (error) {
+            if (requestedTier && pinned === 'auto') {
+                targetTier = selectModelTier(resources, process.env);
+            } else {
+                throw error;
+            }
+        }
         if (!targetTier) {
             await this.activeRuntime?.dispose?.().catch?.(() => undefined);
             this.activeRuntime = null;
@@ -246,7 +266,9 @@ class CaptchaModelManager {
         await fs.promises.rename(activeStaging, activeFile);
         await previous.runtime?.dispose?.().catch?.(() => undefined);
         for (const tier of Object.keys(MODEL_MANIFESTS)) {
-            if (tier !== targetTier) await fs.promises.rm(this.cachePath(tier), { recursive: true, force: true });
+            if (tier !== targetTier && tier !== 'florence2' && tier !== 'fiptcha') {
+                await fs.promises.rm(this.cachePath(tier), { recursive: true, force: true });
+            }
         }
         for (const tier of Object.keys(MODEL_MANIFESTS)) {
             await fs.promises.rm(this.cachePath(`.staging-${tier}`), { recursive: true, force: true });
@@ -265,6 +287,137 @@ class CaptchaModelManager {
             },
             async probe() {
                 await detectWithCompanion(PROBE_PNG, 'object', tier, 0.99, 20_000);
+            }
+        };
+    }
+
+    async _loadFiptchaOnnxRuntime(tier, modelDir, device, transformers) {
+        const ort = require('onnxruntime-node');
+        const processor = await transformers.AutoProcessor.from_pretrained(modelDir, { local_files_only: true });
+        const tokenizer = await transformers.AutoTokenizer.from_pretrained(modelDir, { local_files_only: true });
+
+        const visionSession = await ort.InferenceSession.create(path.join(modelDir, 'vision_encoder.onnx'));
+        const embedSession = await ort.InferenceSession.create(path.join(modelDir, 'embed_tokens.onnx'));
+        const encoderSession = await ort.InferenceSession.create(path.join(modelDir, 'encoder_model.onnx'));
+        const decoderSession = await ort.InferenceSession.create(path.join(modelDir, 'decoder_model.onnx'));
+        const decoderPastSession = await ort.InferenceSession.create(path.join(modelDir, 'decoder_with_past_model.onnx'));
+
+        const EOS_TOKEN_ID = 2;
+        const DECODER_START_TOKEN_ID = 2;
+
+        const argmaxLastToken = (logitsTensor) => {
+            const dims = logitsTensor.dims;
+            const vocab = dims[dims.length - 1];
+            const seq = dims[dims.length - 2];
+            const offset = (seq - 1) * vocab;
+            const data = logitsTensor.data;
+            let bestIdx = 0;
+            let bestVal = -Infinity;
+            for (let i = 0; i < vocab; i += 1) {
+                const val = data[offset + i];
+                if (val > bestVal) {
+                    bestVal = val;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
+        };
+
+        const generate = async (imageBuffer, taskPrompt, maxNewTokens = 64) => {
+            const image = await transformers.RawImage.fromBlob(new Blob([imageBuffer], { type: 'image/png' }));
+            const expanded = expandFlorencePrompt(taskPrompt);
+            const inputs = await processor(image, [expanded]);
+
+            const pixelTensor = new ort.Tensor('float32', inputs.pixel_values.data, inputs.pixel_values.dims);
+            const visionOut = await visionSession.run({ pixel_values: pixelTensor });
+            const imageFeatures = visionOut.image_features;
+
+            const inputIdsData = BigInt64Array.from(Array.from(inputs.input_ids.data, (x) => BigInt(x)));
+            const inputIdsTensor = new ort.Tensor('int64', inputIdsData, inputs.input_ids.dims);
+            const embedOut = await embedSession.run({ input_ids: inputIdsTensor });
+            const textEmbeds = embedOut.inputs_embeds;
+
+            const imgSeq = imageFeatures.dims[1];
+            const txtSeq = textEmbeds.dims[1];
+            const hidden = imageFeatures.dims[2];
+            const mergedEmbeds = new Float32Array((imgSeq + txtSeq) * hidden);
+            mergedEmbeds.set(imageFeatures.data, 0);
+            mergedEmbeds.set(textEmbeds.data, imageFeatures.data.length);
+            const mergedTensor = new ort.Tensor('float32', mergedEmbeds, [1, imgSeq + txtSeq, hidden]);
+
+            const maskData = new BigInt64Array(imgSeq + txtSeq);
+            maskData.fill(1n, 0, imgSeq);
+            for (let i = 0; i < txtSeq; i += 1) {
+                maskData[imgSeq + i] = BigInt(inputs.attention_mask.data[i]);
+            }
+            const encoderAttnMask = new ort.Tensor('int64', maskData, [1, imgSeq + txtSeq]);
+
+            const encoderOut = await encoderSession.run({
+                inputs_embeds: mergedTensor,
+                attention_mask: encoderAttnMask
+            });
+
+            const generatedIds = [DECODER_START_TOKEN_ID];
+            const step0 = await decoderSession.run({
+                input_ids: new ort.Tensor('int64', BigInt64Array.from([BigInt(DECODER_START_TOKEN_ID)]), [1, 1]),
+                encoder_hidden_states: encoderOut.last_hidden_state,
+                encoder_attention_mask: encoderAttnMask
+            });
+            let nextId = argmaxLastToken(step0.logits);
+            generatedIds.push(nextId);
+
+            const encoderPast = {};
+            const decoderPast = {};
+            for (let layer = 0; layer < 6; layer += 1) {
+                encoderPast[`past_key_values.${layer}.encoder.key`] = step0[`present.${layer}.encoder.key`];
+                encoderPast[`past_key_values.${layer}.encoder.value`] = step0[`present.${layer}.encoder.value`];
+                decoderPast[`past_key_values.${layer}.decoder.key`] = step0[`present.${layer}.decoder.key`];
+                decoderPast[`past_key_values.${layer}.decoder.value`] = step0[`present.${layer}.decoder.value`];
+            }
+
+            for (let step = 1; step < maxNewTokens && nextId !== EOS_TOKEN_ID; step += 1) {
+                const out = await decoderPastSession.run({
+                    input_ids: new ort.Tensor('int64', BigInt64Array.from([BigInt(nextId)]), [1, 1]),
+                    encoder_attention_mask: encoderAttnMask,
+                    ...encoderPast,
+                    ...decoderPast
+                });
+                nextId = argmaxLastToken(out.logits);
+                generatedIds.push(nextId);
+                for (let layer = 0; layer < 6; layer += 1) {
+                    decoderPast[`past_key_values.${layer}.decoder.key`] = out[`present.${layer}.decoder.key`];
+                    decoderPast[`past_key_values.${layer}.decoder.value`] = out[`present.${layer}.decoder.value`];
+                }
+            }
+
+            const decoded = tokenizer.decode(generatedIds, { skip_special_tokens: false });
+            return { decoded, imageSize: image.size };
+        };
+
+        return {
+            tier,
+            device,
+            async ground(imageBuffer, targetPrompt, threshold = MODEL_MANIFESTS[tier].threshold) {
+                const { decoded, imageSize } = await generate(imageBuffer, `<CAPTION_TO_PHRASE_GROUNDING>${targetPrompt}`, 64);
+                const regions = parseFlorenceRegions(decoded, imageSize);
+                return regions.map((region) => ({ box: region.box, label: region.label || targetPrompt, score: threshold }));
+            },
+            async detect(imageBuffer, label, threshold = MODEL_MANIFESTS[tier].threshold) {
+                return this.ground(imageBuffer, label, threshold);
+            },
+            async recognizeText(imageBuffer) {
+                const { decoded } = await generate(imageBuffer, '<OCR>', 64);
+                return unwrapOcrText(decoded);
+            },
+            async probe() { await this.ground(PROBE_PNG, 'object', 0.99); },
+            async dispose() {
+                await Promise.all([
+                    visionSession.release?.(),
+                    embedSession.release?.(),
+                    encoderSession.release?.(),
+                    decoderSession.release?.(),
+                    decoderPastSession.release?.()
+                ].map((p) => Promise.resolve(p).catch(() => undefined)));
             }
         };
     }
@@ -291,6 +444,9 @@ class CaptchaModelManager {
                 async dispose() { await detector.dispose?.(); }
             };
         }
+        if (definition.kind === 'fiptcha-onnx') {
+            return this._loadFiptchaOnnxRuntime(tier, modelDir, device, transformers);
+        }
         const model = await transformers.Florence2ForConditionalGeneration.from_pretrained(modelDir, common);
         const processor = await transformers.AutoProcessor.from_pretrained(modelDir, { local_files_only: true });
         const tokenizer = await transformers.AutoTokenizer.from_pretrained(modelDir, { local_files_only: true });
@@ -309,6 +465,16 @@ class CaptchaModelManager {
                     .filter((region) => matchesTargetLabel(region.label, label))
                     .map((region) => ({ box: region.box, label: region.label || label, score: threshold }));
             },
+            async ground(imageBuffer, targetPrompt, threshold = definition.threshold) {
+                const image = await transformers.RawImage.fromBlob(new Blob([imageBuffer], { type: 'image/png' }));
+                const task = `<CAPTION_TO_PHRASE_GROUNDING>${targetPrompt}`;
+                const prompts = processor.construct_prompts(task);
+                const inputs = await processor(image, prompts);
+                const generated = await model.generate({ ...inputs, max_new_tokens: 64, num_beams: 1 });
+                const decoded = tokenizer.batch_decode(generated, { skip_special_tokens: false })[0];
+                const regions = parseFlorenceRegions(decoded, image.size);
+                return regions.map((region) => ({ box: region.box, label: region.label || targetPrompt, score: threshold }));
+            },
             async recognizeText(imageBuffer) {
                 const image = await transformers.RawImage.fromBlob(new Blob([imageBuffer], { type: 'image/png' }));
                 const task = '<OCR>';
@@ -316,17 +482,17 @@ class CaptchaModelManager {
                 const inputs = await processor(image, prompts);
                 const generated = await model.generate({ ...inputs, max_new_tokens: 64, num_beams: 1 });
                 const decoded = tokenizer.batch_decode(generated, { skip_special_tokens: false })[0];
-                return String(decoded || '').replaceAll('<s>', '').replaceAll('</s>', '').trim();
+                return unwrapOcrText(decoded);
             },
             async probe() { await this.detect(PROBE_PNG, 'object', 0.99); },
             async dispose() { await model.dispose?.(); }
         };
     }
 
-    async _enqueueInference(operation) {
+    async _enqueueInference(operation, preferredTier = null) {
         if (this.isSkipped()) throw new Error('Local CAPTCHA model disabled by SKIP_LOCAL_CAPTCHA_MODEL');
         const run = async () => {
-            const runtime = await this.reconcile();
+            const runtime = await this.reconcile(preferredTier);
             if (!runtime) throw this.lastError || new Error('Local CAPTCHA model is unavailable');
             try {
                 return await operation(runtime);
@@ -337,7 +503,7 @@ class CaptchaModelManager {
                     this.activeTier = null;
                     this.activeBackend = null;
                     this.lastError = error;
-                    this.reconcile().catch(() => undefined);
+                    this.reconcile(preferredTier).catch(() => undefined);
                 }
                 throw error;
             }
@@ -349,7 +515,16 @@ class CaptchaModelManager {
 
     async detect(imageBuffer, label, threshold) {
         return this._enqueueInference((runtime) =>
-            runtime.detect(imageBuffer, label, threshold ?? modelThreshold(this.activeTier)));
+            runtime.detect(imageBuffer, label, threshold ?? modelThreshold(this.activeTier)), 'fiptcha');
+    }
+
+    async ground(imageBuffer, targetPrompt, threshold) {
+        return this._enqueueInference((runtime) => {
+            if (typeof runtime.ground !== 'function') {
+                return runtime.detect(imageBuffer, targetPrompt, threshold ?? modelThreshold(this.activeTier));
+            }
+            return runtime.ground(imageBuffer, targetPrompt, threshold ?? modelThreshold(this.activeTier));
+        }, 'fiptcha');
     }
 
     async recognizeText(imageBuffer) {
@@ -358,7 +533,7 @@ class CaptchaModelManager {
                 throw new Error(`OCR is not supported by the active ${this.activeTier || 'unknown'} CAPTCHA backend`);
             }
             return runtime.recognizeText(imageBuffer);
-        });
+        }, 'fiptcha');
     }
 
     status() {
@@ -456,6 +631,23 @@ function parseFlorenceRegions(decoded, imageSize) {
     return regions;
 }
 
+function expandFlorencePrompt(taskPrompt) {
+    const raw = String(taskPrompt || '').trim();
+    if (raw === '<OCR>') return 'What is the text in the image?';
+    if (raw === '<DENSE_REGION_CAPTION>') return 'Locate the objects in the image, with their descriptions.';
+    if (raw.startsWith('<CAPTION_TO_PHRASE_GROUNDING>')) {
+        return `Locate the phrases in the caption: ${raw.slice('<CAPTION_TO_PHRASE_GROUNDING>'.length).trim()}`;
+    }
+    if (raw.startsWith('<VQA>')) return raw.slice('<VQA>'.length).trim();
+    return raw;
+}
+
+function unwrapOcrText(decoded) {
+    const cleaned = String(decoded || '').replaceAll('<s>', '').replaceAll('</s>', '').trim();
+    const typeMatch = cleaned.match(/Type\(content='([^']*)'\)/);
+    return typeMatch ? typeMatch[1].trim() : cleaned;
+}
+
 function checksumBuffer(buffer) {
     return crypto.createHash('sha256').update(buffer).digest('hex');
 }
@@ -476,5 +668,7 @@ module.exports = {
     modelThreshold,
     isCapacityFailure,
     parseFlorenceRegions,
-    matchesTargetLabel
+    matchesTargetLabel,
+    expandFlorencePrompt,
+    unwrapOcrText
 };
